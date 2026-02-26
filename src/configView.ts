@@ -76,6 +76,23 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 			repoItem.contextValue = 'repo';
 			items.push(repoItem);
 
+			// Notify for users filter
+			const notifyUsersLabel = state.notifyForUsers && state.notifyForUsers.length > 0
+				? state.notifyForUsers.join(', ')
+				: 'All users';
+			const notifyUsersItem = new ConfigTreeItem(
+				'Notify For',
+				notifyUsersLabel,
+				vscode.TreeItemCollapsibleState.None,
+				'person'
+			);
+			notifyUsersItem.command = {
+				command: 'woa.selectNotifyUsers',
+				title: 'Select Users to Notify For'
+			};
+			notifyUsersItem.contextValue = 'notifyUsers';
+			items.push(notifyUsersItem);
+
 			// Stop monitoring action
 			const stopItem = new ConfigTreeItem(
 				'Stop Monitoring',

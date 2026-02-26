@@ -29,6 +29,16 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 		this.refresh();
 	}
 
+	getActors(): string[] {
+		const actors = new Set<string>();
+		for (const run of this.runs) {
+			if (run.actor) {
+				actors.add(run.actor);
+			}
+		}
+		return Array.from(actors);
+	}
+
 	setFetchJobsCallback(callback: (runId: number) => Promise<IWorkflowJob[]>): void {
 		this.fetchJobsCallback = callback;
 	}

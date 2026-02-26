@@ -43,6 +43,7 @@ export interface IMonitoringState {
 	repo: string;
 	lastRunId?: number;
 	lastStatus?: string;
+	notifyForUsers?: string[]; // Only notify for failed/cancelled workflows from these users (empty = notify for all)
 }
 
 // Quick pick item interfaces

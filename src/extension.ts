@@ -78,11 +78,12 @@ export function activate(context: vscode.ExtensionContext) {
 	const selectWorkflowOnlyCmd = vscode.commands.registerCommand('woa.selectWorkflowOnly', () => selectWorkflowOnly(context));
 	const stopMonitoringCmd = vscode.commands.registerCommand('woa.stopMonitoring', () => stopMonitoring(context));
 	const refreshStatusCmd = vscode.commands.registerCommand('woa.refreshStatus', () => refreshStatus(context));
+	const selectNotifyUsersCmd = vscode.commands.registerCommand('woa.selectNotifyUsers', () => selectNotifyUsers(context));
 	const openRunCmd = vscode.commands.registerCommand('woa.openRun', (url: string) => {
 		vscode.env.openExternal(vscode.Uri.parse(url));
 	});
 
-	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, openRunCmd);
+	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, openRunCmd);
 
 	if (currentState) {
 		cachedGitHubInfo = { owner: currentState.owner, repo: currentState.repo };
@@ -483,7 +484,7 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 			repo: state.repo,
 			workflow_id: state.workflowId,
 			branch: state.branch,
-			per_page: 7
+			per_page: 10
 		});
 
 		// Update runs view
@@ -518,10 +519,15 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 		updateStatusBar(state);
 		configViewProvider.refresh();
 
-		// Show notification if the workflow failed and it's a new run
-		if (latestRun.conclusion === 'failure' && latestRun.id !== previousRunId) {
+		// Check if we should notify based on user filter
+		const actor = latestRun.actor?.login || 'unknown';
+		const shouldNotify = !state.notifyForUsers || state.notifyForUsers.length === 0 || state.notifyForUsers.includes(actor);
+
+		// Show notification if the workflow failed/cancelled and it's a new run (respecting user filter)
+		if ((latestRun.conclusion === 'failure' || latestRun.conclusion === 'cancelled') && latestRun.id !== previousRunId && shouldNotify) {
+			const statusText = latestRun.conclusion === 'failure' ? 'failed' : 'was cancelled';
 			const action = await vscode.window.showErrorMessage(
-				`Workflow "${state.workflowName}" failed on branch "${state.branch}"`,
+				`Workflow "${state.workflowName}" ${statusText} on branch "${state.branch}" (by ${actor})`,
 				'View on GitHub',
 				'Dismiss'
 			);
@@ -559,5 +565,78 @@ async function stopMonitoring(context: vscode.ExtensionContext): Promise<void> {
 async function refreshStatus(context: vscode.ExtensionContext): Promise<void> {
 	if (currentState) {
 		await checkWorkflowStatus(context, currentState);
+	}
+}
+
+async function selectNotifyUsers(context: vscode.ExtensionContext): Promise<void> {
+	if (!currentState) {
+		vscode.window.showWarningMessage('Please set up monitoring first.');
+		return;
+	}
+
+	try {
+		// Get current GitHub user from session
+		let currentGitHubUser: string | undefined;
+		const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: false });
+		if (session) {
+			currentGitHubUser = session.account.label;
+		}
+
+		// Use cached actors from runsViewProvider instead of making API call
+		const cachedActors = runsViewProvider.getActors();
+		const actors = new Set<string>(cachedActors);
+
+		// Always include current user even if they haven't run the workflow
+		if (currentGitHubUser) {
+			actors.add(currentGitHubUser);
+		}
+
+		if (actors.size === 0) {
+			vscode.window.showWarningMessage('No workflow runs found to determine users.');
+			return;
+		}
+
+		// Prepare quick pick items
+		const currentlySelected = currentState.notifyForUsers || [];
+		const isFirstTimeSetup = currentState.notifyForUsers === undefined;
+		
+		const userItems = Array.from(actors).sort().map(actor => {
+			const isCurrentUser = actor === currentGitHubUser;
+			// Auto-select current user on first setup, otherwise use saved selection
+			const shouldBePicked = isFirstTimeSetup 
+				? isCurrentUser 
+				: currentlySelected.includes(actor);
+			
+			return {
+				label: isCurrentUser ? `${actor} (me)` : actor,
+				picked: shouldBePicked,
+				username: actor // Store actual username for later
+			};
+		});
+
+		// Show multi-select quick pick
+		const selectedUsers = await vscode.window.showQuickPick(userItems, {
+			placeHolder: 'Select users to notify for (empty = notify for all)',
+			title: 'Workflow Alerter: Filter Notifications by User',
+			canPickMany: true
+		});
+
+		if (selectedUsers === undefined) {
+			return; // User cancelled
+		}
+
+		// Update state with selected users (use actual username, not the display label)
+		currentState.notifyForUsers = selectedUsers.map(item => item.username);
+		await context.workspaceState.update('monitoringState', currentState);
+		configViewProvider.refresh();
+
+		const message = currentState.notifyForUsers.length > 0
+			? `Will notify for failures from: ${currentState.notifyForUsers.join(', ')}`
+			: 'Will notify for failures from all users';
+		vscode.window.showInformationMessage(message);
+
+	} catch (error) {
+		console.error('Error selecting notify users:', error);
+		vscode.window.showErrorMessage(`Failed to select users: ${error}`);
 	}
 }
