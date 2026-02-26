@@ -80,7 +80,18 @@
           "group": "navigation"
         }
       ]
-    }
+    },
+    "colors": [
+      {
+        "id": "woa.statusBarSuccessBackground",
+        "description": "Status bar background color when workflow passes",
+        "defaults": {
+          "dark": "#2e7d32",
+          "light": "#4caf50",
+          "highContrast": "#2e7d32"
+        }
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "pnpm run package",

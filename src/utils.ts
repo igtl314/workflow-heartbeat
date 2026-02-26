@@ -18,6 +18,10 @@ export function getStatusIcon(status: string | undefined): string {
 			return '$(check)';
 		case 'failure':
 			return '$(x)';
+		case 'cancelled':
+			return '$(circle-slash)';
+		case 'skipped':
+			return '$(debug-step-over)';
 		case 'in_progress':
 		case 'queued':
 		case 'pending':

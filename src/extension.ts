@@ -99,6 +99,24 @@ export function deactivate() {
 	}
 }
 
+// Exported for testing
+export function getStatusBarBackgroundColor(lastStatus: string | undefined): string | undefined {
+	if (lastStatus === 'failure' || lastStatus === 'cancelled') {
+		return 'statusBarItem.errorBackground';
+	} else if (lastStatus === 'in_progress' || lastStatus === 'queued' || lastStatus === 'pending') {
+		return 'statusBarItem.warningBackground';
+	}
+	return undefined;
+}
+
+// Exported for testing
+export function getStatusBarTextColor(lastStatus: string | undefined): string | undefined {
+	if (lastStatus === 'success') {
+		return '#69db7c'; // Green text for success
+	}
+	return undefined;
+}
+
 function updateStatusBar(state: IMonitoringState | undefined) {
 	if (!state) {
 		statusBarItem.text = '$(eye) Monitor Workflow';
@@ -111,17 +129,12 @@ function updateStatusBar(state: IMonitoringState | undefined) {
 	const statusIcon = getStatusIcon(state.lastStatus);
 	statusBarItem.text = `${statusIcon} ${state.workflowName} (${state.branch})`;
 
-	// Set colors: green for success, red for failure, yellow for in-progress/pending
-	if (state.lastStatus === 'failure') {
-		statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
-		statusBarItem.color = '#ff6b6b'; // Red
-	} else if (state.lastStatus === 'success') {
-		statusBarItem.backgroundColor = undefined;
-		statusBarItem.color = '#69db7c'; // Green
-	} else {
-		statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-		statusBarItem.color = '#ffd43b'; // Yellow
-	}
+	// Set background color for error and pending states
+	const bgColor = getStatusBarBackgroundColor(state.lastStatus);
+	statusBarItem.backgroundColor = bgColor ? new vscode.ThemeColor(bgColor) : undefined;
+
+	// Set text color for success state
+	statusBarItem.color = getStatusBarTextColor(state.lastStatus);
 
 	statusBarItem.show();
 }

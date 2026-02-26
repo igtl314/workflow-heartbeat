@@ -100,6 +100,10 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 				return 'Passing';
 			case 'failure':
 				return 'Failed';
+			case 'cancelled':
+				return 'Cancelled';
+			case 'skipped':
+				return 'Skipped';
 			case 'in_progress':
 				return 'In Progress';
 			case 'queued':
@@ -117,6 +121,10 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 				return 'pass';
 			case 'failure':
 				return 'error';
+			case 'cancelled':
+				return 'circle-slash';
+			case 'skipped':
+				return 'debug-step-over';
 			case 'in_progress':
 			case 'queued':
 			case 'pending':
@@ -131,10 +139,12 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 			case 'success':
 				return 'testing.iconPassed';
 			case 'failure':
+			case 'cancelled':
 				return 'testing.iconFailed';
 			case 'in_progress':
 			case 'queued':
 			case 'pending':
+			case 'skipped':
 				return 'testing.iconQueued';
 			default:
 				return undefined;
