@@ -62,6 +62,7 @@ export interface IWorkflowRun {
 	created_at: string;
 	head_sha: string;
 	run_number: number;
+	actor: string;
 }
 
 // Workflow job interface

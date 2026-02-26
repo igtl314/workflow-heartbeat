@@ -495,7 +495,8 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 			html_url: run.html_url,
 			created_at: run.created_at,
 			head_sha: run.head_sha,
-			run_number: run.run_number
+			run_number: run.run_number,
+			actor: run.actor?.login || 'unknown'
 		}));
 		runsViewProvider.setRuns(runs);
 

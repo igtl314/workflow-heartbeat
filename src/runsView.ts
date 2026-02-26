@@ -74,7 +74,7 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 
 			const item = new RunsTreeItem(
 				`#${run.run_number}`,
-				`${this.getStatusLabel(status)} • ${timeAgo} • ${commitShort}`,
+				`${this.getStatusLabel(status)} • ${run.actor} • ${timeAgo}`,
 				vscode.TreeItemCollapsibleState.Collapsed,
 				this.getStatusIconName(status),
 				'run',
@@ -86,6 +86,7 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 			item.tooltip = new vscode.MarkdownString(
 				`**Run #${run.run_number}**\n\n` +
 				`Status: ${this.getStatusLabel(status)}\n\n` +
+				`Author: ${run.actor}\n\n` +
 				`Commit: \`${commitShort}\`\n\n` +
 				`Created: ${new Date(run.created_at).toLocaleString()}\n\n` +
 				`Click to expand and see jobs`
