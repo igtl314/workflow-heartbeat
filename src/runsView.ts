@@ -61,7 +61,8 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunTreeItem> {
 				`#${run.run_number}`,
 				`${this.getStatusLabel(status)} • ${timeAgo} • ${commitShort}`,
 				vscode.TreeItemCollapsibleState.None,
-				this.getStatusIconName(status)
+				this.getStatusIconName(status),
+				this.getStatusIconColor(status)
 			);
 
 			item.command = {
@@ -124,6 +125,22 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunTreeItem> {
 		}
 	}
 
+	private getStatusIconColor(status: string | null): string | undefined {
+		switch (status) {
+			case 'success':
+				return 'testing.iconPassed';
+			case 'failure':
+			case 'cancelled':
+				return 'testing.iconFailed';
+			case 'in_progress':
+			case 'queued':
+			case 'pending':
+				return 'testing.iconQueued';
+			default:
+				return undefined;
+		}
+	}
+
 	private getTimeAgo(dateString: string): string {
 		const date = new Date(dateString);
 		const now = new Date();
@@ -157,12 +174,14 @@ export class RunTreeItem extends vscode.TreeItem {
 		public readonly label: string,
 		public readonly description: string,
 		public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-		public readonly iconName?: string
+		public readonly iconName?: string,
+		public readonly iconColor?: string
 	) {
 		super(label, collapsibleState);
 		this.description = description;
 		if (iconName) {
-			this.iconPath = new vscode.ThemeIcon(iconName);
+			const color = iconColor ? new vscode.ThemeColor(iconColor) : undefined;
+			this.iconPath = new vscode.ThemeIcon(iconName, color);
 		}
 	}
 }

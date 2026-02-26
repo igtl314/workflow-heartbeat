@@ -60,7 +60,8 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 				'Status',
 				this.getStatusLabel(state.lastStatus),
 				vscode.TreeItemCollapsibleState.None,
-				this.getStatusIconName(state.lastStatus)
+				this.getStatusIconName(state.lastStatus),
+				this.getStatusIconColor(state.lastStatus)
 			);
 			statusItem.contextValue = 'status';
 			items.push(statusItem);
@@ -124,6 +125,21 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 				return 'question';
 		}
 	}
+
+	private getStatusIconColor(status: string | undefined): string | undefined {
+		switch (status) {
+			case 'success':
+				return 'testing.iconPassed';
+			case 'failure':
+				return 'testing.iconFailed';
+			case 'in_progress':
+			case 'queued':
+			case 'pending':
+				return 'testing.iconQueued';
+			default:
+				return undefined;
+		}
+	}
 }
 
 export class ConfigTreeItem extends vscode.TreeItem {
@@ -131,12 +147,14 @@ export class ConfigTreeItem extends vscode.TreeItem {
 		public readonly label: string,
 		public readonly description: string,
 		public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-		public readonly iconName?: string
+		public readonly iconName?: string,
+		public readonly iconColor?: string
 	) {
 		super(label, collapsibleState);
 		this.description = description;
 		if (iconName) {
-			this.iconPath = new vscode.ThemeIcon(iconName);
+			const color = iconColor ? new vscode.ThemeColor(iconColor) : undefined;
+			this.iconPath = new vscode.ThemeIcon(iconName, color);
 		}
 	}
 }
