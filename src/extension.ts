@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { IGitExtension, IMonitoringState, TOctokit, IWorkflowQuickPickItem, IWorkflowRun } from './types';
+import type { IGitExtension, IMonitoringState, TOctokit, IWorkflowQuickPickItem, IWorkflowRun, IWorkflowJob } from './types';
 import { getOctokit, getStatusIcon, getGitHubInfo } from './utils';
 import { ConfigViewProvider } from './configView';
 import { RunsViewProvider } from './runsView';
@@ -29,6 +29,42 @@ export function activate(context: vscode.ExtensionContext) {
 	
 	vscode.window.registerTreeDataProvider('woa.configView', configViewProvider);
 	vscode.window.registerTreeDataProvider('woa.runsView', runsViewProvider);
+
+	// Set up callback for fetching jobs when expanding a run
+	runsViewProvider.setFetchJobsCallback(async (runId: number): Promise<IWorkflowJob[]> => {
+		try {
+			const state = currentState;
+			if (!state) { return []; }
+
+			if (!octokit) {
+				const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: false });
+				if (session) {
+					octokit = await getOctokit(session.accessToken);
+				} else {
+					return [];
+				}
+			}
+
+			const { data } = await octokit.rest.actions.listJobsForWorkflowRun({
+				owner: state.owner,
+				repo: state.repo,
+				run_id: runId
+			});
+
+			return data.jobs.map((job: any) => ({
+				id: job.id,
+				name: job.name,
+				status: job.status,
+				conclusion: job.conclusion,
+				html_url: job.html_url,
+				started_at: job.started_at,
+				completed_at: job.completed_at
+			}));
+		} catch (error) {
+			console.error('Failed to fetch jobs:', error);
+			return [];
+		}
+	});
 
 	// Create status bar item
 	statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -428,13 +464,13 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 	}
 
 	try {
-		// Fetch multiple runs for the runs view
+		// Fetch recent runs for the runs view
 		const { data: runsData } = await octokit.rest.actions.listWorkflowRuns({
 			owner: state.owner,
 			repo: state.repo,
 			workflow_id: state.workflowId,
 			branch: state.branch,
-			per_page: 10
+			per_page: 7
 		});
 
 		// Update runs view

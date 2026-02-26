@@ -63,3 +63,14 @@ export interface IWorkflowRun {
 	head_sha: string;
 	run_number: number;
 }
+
+// Workflow job interface
+export interface IWorkflowJob {
+	id: number;
+	name: string;
+	status: string;
+	conclusion: string | null;
+	html_url: string;
+	started_at: string | null;
+	completed_at: string | null;
+}

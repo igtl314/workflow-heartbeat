@@ -1,11 +1,19 @@
 import * as vscode from 'vscode';
-import type { IMonitoringState, IWorkflowRun } from './types';
+import type { IMonitoringState, IWorkflowRun, IWorkflowJob } from './types';
 
-export class RunsViewProvider implements vscode.TreeDataProvider<RunTreeItem> {
-	private _onDidChangeTreeData: vscode.EventEmitter<RunTreeItem | undefined | null | void> = new vscode.EventEmitter<RunTreeItem | undefined | null | void>();
-	readonly onDidChangeTreeData: vscode.Event<RunTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+// Extended run interface with jobs
+export interface IWorkflowRunWithJobs extends IWorkflowRun {
+	jobs?: IWorkflowJob[];
+}
 
-	private runs: IWorkflowRun[] = [];
+type TreeItemType = 'run' | 'job' | 'info';
+
+export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
+	private _onDidChangeTreeData: vscode.EventEmitter<RunsTreeItem | undefined | null | void> = new vscode.EventEmitter<RunsTreeItem | undefined | null | void>();
+	readonly onDidChangeTreeData: vscode.Event<RunsTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+
+	private runs: IWorkflowRunWithJobs[] = [];
+	private fetchJobsCallback?: (runId: number) => Promise<IWorkflowJob[]>;
 
 	constructor(
 		private context: vscode.ExtensionContext,
@@ -16,73 +24,185 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunTreeItem> {
 		this._onDidChangeTreeData.fire();
 	}
 
-	setRuns(runs: IWorkflowRun[]): void {
+	setRuns(runs: IWorkflowRunWithJobs[]): void {
 		this.runs = runs;
 		this.refresh();
 	}
 
-	getTreeItem(element: RunTreeItem): vscode.TreeItem {
+	setFetchJobsCallback(callback: (runId: number) => Promise<IWorkflowJob[]>): void {
+		this.fetchJobsCallback = callback;
+	}
+
+	getTreeItem(element: RunsTreeItem): vscode.TreeItem {
 		return element;
 	}
 
-	getChildren(element?: RunTreeItem): Thenable<RunTreeItem[]> {
-		if (element) {
-			return Promise.resolve([]);
+	async getChildren(element?: RunsTreeItem): Promise<RunsTreeItem[]> {
+		// If element is provided, return jobs for that run
+		if (element && element.itemType === 'run' && element.runId) {
+			return this.getJobsForRun(element.runId);
 		}
 
 		const state = this.getMonitoringState();
 
 		if (!state) {
-			const noConfigItem = new RunTreeItem(
+			const noConfigItem = new RunsTreeItem(
 				'No workflow configured',
 				'Select a branch and workflow first',
 				vscode.TreeItemCollapsibleState.None,
+				'info',
 				'info'
 			);
-			return Promise.resolve([noConfigItem]);
+			return [noConfigItem];
 		}
 
 		if (this.runs.length === 0) {
-			const noRunsItem = new RunTreeItem(
+			const noRunsItem = new RunsTreeItem(
 				'No runs found',
 				'Waiting for workflow runs...',
 				vscode.TreeItemCollapsibleState.None,
+				'info',
 				'info'
 			);
-			return Promise.resolve([noRunsItem]);
+			return [noRunsItem];
 		}
 
-		const items: RunTreeItem[] = this.runs.map(run => {
+		const items: RunsTreeItem[] = this.runs.map(run => {
 			const status = run.conclusion || run.status;
 			const timeAgo = this.getTimeAgo(run.created_at);
 			const commitShort = run.head_sha.substring(0, 7);
 
-			const item = new RunTreeItem(
+			const item = new RunsTreeItem(
 				`#${run.run_number}`,
 				`${this.getStatusLabel(status)} • ${timeAgo} • ${commitShort}`,
-				vscode.TreeItemCollapsibleState.None,
+				vscode.TreeItemCollapsibleState.Collapsed,
 				this.getStatusIconName(status),
-				this.getStatusIconColor(status)
+				'run',
+				this.getStatusIconColor(status),
+				run.id,
+				run.html_url
 			);
-
-			item.command = {
-				command: 'woa.openRun',
-				title: 'Open Run on GitHub',
-				arguments: [run.html_url]
-			};
 
 			item.tooltip = new vscode.MarkdownString(
 				`**Run #${run.run_number}**\n\n` +
 				`Status: ${this.getStatusLabel(status)}\n\n` +
 				`Commit: \`${commitShort}\`\n\n` +
 				`Created: ${new Date(run.created_at).toLocaleString()}\n\n` +
-				`Click to open on GitHub`
+				`Click to expand and see jobs`
 			);
 
 			return item;
 		});
 
-		return Promise.resolve(items);
+		return items;
+	}
+
+	private async getJobsForRun(runId: number): Promise<RunsTreeItem[]> {
+		// Check if we already have jobs cached
+		const run = this.runs.find(r => r.id === runId);
+		
+		if (run?.jobs && run.jobs.length > 0) {
+			return this.createJobItems(run.jobs);
+		}
+
+		// Fetch jobs if we have a callback
+		if (this.fetchJobsCallback) {
+			try {
+				const jobs = await this.fetchJobsCallback(runId);
+				
+				// Cache the jobs
+				if (run) {
+					run.jobs = jobs;
+				}
+
+				if (jobs.length === 0) {
+					return [new RunsTreeItem(
+						'No jobs found',
+						'',
+						vscode.TreeItemCollapsibleState.None,
+						'info',
+						'info'
+					)];
+				}
+
+				return this.createJobItems(jobs);
+			} catch (error) {
+				console.error('Error fetching jobs:', error);
+				return [new RunsTreeItem(
+					'Error loading jobs',
+					'',
+					vscode.TreeItemCollapsibleState.None,
+					'error',
+					'info'
+				)];
+			}
+		}
+
+		return [new RunsTreeItem(
+			'Jobs not available',
+			'',
+			vscode.TreeItemCollapsibleState.None,
+			'info',
+			'info'
+		)];
+	}
+
+	private createJobItems(jobs: IWorkflowJob[]): RunsTreeItem[] {
+		return jobs.map(job => {
+			const status = job.conclusion || job.status;
+			const duration = this.getJobDuration(job);
+
+			const item = new RunsTreeItem(
+				job.name,
+				`${this.getStatusLabel(status)}${duration ? ` • ${duration}` : ''}`,
+				vscode.TreeItemCollapsibleState.None,
+				this.getStatusIconName(status),
+				'job',
+				this.getStatusIconColor(status),
+				undefined,
+				job.html_url
+			);
+
+			item.command = {
+				command: 'woa.openRun',
+				title: 'Open Job on GitHub',
+				arguments: [job.html_url]
+			};
+
+			item.tooltip = new vscode.MarkdownString(
+				`**${job.name}**\n\n` +
+				`Status: ${this.getStatusLabel(status)}\n\n` +
+				(duration ? `Duration: ${duration}\n\n` : '') +
+				`Click to open on GitHub`
+			);
+
+			return item;
+		});
+	}
+
+	private getJobDuration(job: IWorkflowJob): string | null {
+		if (!job.started_at || !job.completed_at) {
+			return null;
+		}
+
+		const start = new Date(job.started_at);
+		const end = new Date(job.completed_at);
+		const seconds = Math.floor((end.getTime() - start.getTime()) / 1000);
+
+		if (seconds < 60) {
+			return `${seconds}s`;
+		}
+
+		const minutes = Math.floor(seconds / 60);
+		const remainingSeconds = seconds % 60;
+
+		if (minutes < 60) {
+			return `${minutes}m ${remainingSeconds}s`;
+		}
+
+		const hours = Math.floor(minutes / 60);
+		const remainingMinutes = minutes % 60;
+		return `${hours}h ${remainingMinutes}m`;
 	}
 
 	private getStatusLabel(status: string | null): string {
@@ -169,19 +289,22 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunTreeItem> {
 	}
 }
 
-export class RunTreeItem extends vscode.TreeItem {
+export class RunsTreeItem extends vscode.TreeItem {
 	constructor(
 		public readonly label: string,
 		public readonly description: string,
 		public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-		public readonly iconName?: string,
-		public readonly iconColor?: string
+		public readonly iconName: string,
+		public readonly itemType: TreeItemType,
+		public readonly iconColor?: string,
+		public readonly runId?: number,
+		public readonly url?: string
 	) {
 		super(label, collapsibleState);
 		this.description = description;
-		if (iconName) {
-			const color = iconColor ? new vscode.ThemeColor(iconColor) : undefined;
-			this.iconPath = new vscode.ThemeIcon(iconName, color);
-		}
+		this.contextValue = itemType;
+		
+		const color = iconColor ? new vscode.ThemeColor(iconColor) : undefined;
+		this.iconPath = new vscode.ThemeIcon(iconName, color);
 	}
 }
