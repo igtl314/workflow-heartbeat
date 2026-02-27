@@ -18,7 +18,7 @@ let cachedGitHubInfo: { owner: string; repo: string } | undefined;
 const POLLING_INTERVAL_MS = 60000; // Poll every 60 seconds
 
 export function activate(context: vscode.ExtensionContext) {
-	console.log('Workflow Alerter is now active!');
+	console.log('Workflow Heartbeat is now active!');
 
 	// Restore previous monitoring state if any
 	currentState = context.workspaceState.get<IMonitoringState>('monitoringState');
@@ -202,7 +202,7 @@ async function selectWorkflow(context: vscode.ExtensionContext): Promise<void> {
 
 		const selectedBranch = await vscode.window.showQuickPick(branchItems, {
 			placeHolder: 'Select a branch to monitor',
-			title: 'Workflow Alerter: Select Branch'
+			title: 'Workflow Heartbeat: Select Branch'
 		});
 
 		if (!selectedBranch) {
@@ -238,7 +238,7 @@ async function selectWorkflow(context: vscode.ExtensionContext): Promise<void> {
 
 		const selectedWorkflow = await vscode.window.showQuickPick(workflowItems, {
 			placeHolder: 'Select a workflow to monitor',
-			title: 'Workflow Alerter: Select Workflow'
+			title: 'Workflow Heartbeat: Select Workflow'
 		});
 
 		if (!selectedWorkflow) {
@@ -316,7 +316,7 @@ async function selectBranch(context: vscode.ExtensionContext): Promise<void> {
 
 		const selectedBranch = await vscode.window.showQuickPick(branchItems, {
 			placeHolder: 'Select a branch to monitor',
-			title: 'Workflow Alerter: Select Branch'
+			title: 'Workflow Heartbeat: Select Branch'
 		});
 
 		if (!selectedBranch) {
@@ -410,7 +410,7 @@ async function selectWorkflowOnly(context: vscode.ExtensionContext): Promise<voi
 
 		const selectedWorkflow = await vscode.window.showQuickPick(workflowItems, {
 			placeHolder: 'Select a workflow to monitor',
-			title: 'Workflow Alerter: Select Workflow'
+			title: 'Workflow Heartbeat: Select Workflow'
 		});
 
 		if (!selectedWorkflow) {
@@ -636,7 +636,7 @@ async function selectNotifyUsers(context: vscode.ExtensionContext): Promise<void
 		// Show multi-select quick pick
 		const selectedUsers = await vscode.window.showQuickPick(userItems, {
 			placeHolder: 'Select users to notify for (empty = notify for all)',
-			title: 'Workflow Alerter: Filter Notifications by User',
+			title: 'Workflow Heartbeat: Filter Notifications by User',
 			canPickMany: true
 		});
 

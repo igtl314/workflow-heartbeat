@@ -1,8 +1,9 @@
 {
-  "name": "woa",
-  "displayName": "workflow-alerter",
-  "description": "A small extension that sends notifications when a workflow fails",
-  "version": "0.0.1",
+  "name": "workflow-heartbeat",
+  "displayName": "Workflow Heartbeat",
+  "description": "Monitor GitHub Actions workflows and get notified when they fail",
+  "version": "1.0.0",
+  "publisher": "Marcus Döberl",
   "engines": {
     "vscode": "^1.109.0"
   },
@@ -21,7 +22,7 @@
       "activitybar": [
         {
           "id": "workflow-alerter",
-          "title": "Workflow Alerter",
+          "title": "Workflow Heartbeat",
           "icon": "resources/icon.svg"
         }
       ]
@@ -43,27 +44,27 @@
     "commands": [
       {
         "command": "woa.selectWorkflow",
-        "title": "Workflow Alerter: Select Branch and Workflow to Monitor",
+        "title": "Workflow Heartbeat: Select Branch and Workflow to Monitor",
         "icon": "$(gear)"
       },
       {
         "command": "woa.selectBranch",
-        "title": "Workflow Alerter: Select Branch",
+        "title": "Workflow Heartbeat: Select Branch",
         "icon": "$(git-branch)"
       },
       {
         "command": "woa.selectWorkflowOnly",
-        "title": "Workflow Alerter: Select Workflow",
+        "title": "Workflow Heartbeat: Select Workflow",
         "icon": "$(workflow)"
       },
       {
         "command": "woa.stopMonitoring",
-        "title": "Workflow Alerter: Stop Monitoring",
+        "title": "Workflow Heartbeat: Stop Monitoring",
         "icon": "$(debug-stop)"
       },
       {
         "command": "woa.refreshStatus",
-        "title": "Workflow Alerter: Refresh Status",
+        "title": "Workflow Heartbeat: Refresh Status",
         "icon": "$(refresh)"
       },
       {
@@ -73,7 +74,7 @@
       },
       {
         "command": "woa.selectNotifyUsers",
-        "title": "Workflow Alerter: Select Users to Notify For",
+        "title": "Workflow Heartbeat: Select Users to Notify For",
         "icon": "$(person)"
       }
     ],
