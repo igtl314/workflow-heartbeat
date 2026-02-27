@@ -1,0 +1,28 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background with rounded corners -->
+  <rect width="128" height="128" rx="24" fill="#1a1a2e"/>
+  
+  <!-- Subtle gradient overlay -->
+  <rect width="128" height="128" rx="24" fill="url(#gradient)" opacity="0.5"/>
+  
+  <!-- Outer circle -->
+  <circle cx="64" cy="64" r="44" stroke="#ffffff" stroke-width="4" fill="none"/>
+  
+  <!-- ECG/Pulse line with spike -->
+  <path 
+    d="M28 64 H44 L50 64 L56 38 L64 90 L72 52 L78 64 H100" 
+    stroke="#ffffff" 
+    stroke-width="4" 
+    stroke-linecap="round" 
+    stroke-linejoin="round"
+    fill="none"
+  />
+  
+  <!-- Gradient definition -->
+  <defs>
+    <linearGradient id="gradient" x1="0" y1="0" x2="128" y2="128">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#1a1a2e" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+</svg>
