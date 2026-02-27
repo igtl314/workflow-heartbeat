@@ -6,13 +6,14 @@ export interface IWorkflowRunWithJobs extends IWorkflowRun {
 	jobs?: IWorkflowJob[];
 }
 
-type TreeItemType = 'run' | 'job' | 'info';
+type TreeItemType = 'run' | 'job' | 'info' | 'jobGroup';
 
 export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	private _onDidChangeTreeData: vscode.EventEmitter<RunsTreeItem | undefined | null | void> = new vscode.EventEmitter<RunsTreeItem | undefined | null | void>();
 	readonly onDidChangeTreeData: vscode.Event<RunsTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
 	private runs: IWorkflowRunWithJobs[] = [];
+	private jobsCache: Map<number, IWorkflowJob[]> = new Map();
 	private fetchJobsCallback?: (runId: number) => Promise<IWorkflowJob[]>;
 
 	constructor(
@@ -48,7 +49,12 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	}
 
 	async getChildren(element?: RunsTreeItem): Promise<RunsTreeItem[]> {
-		// If element is provided, return jobs for that run
+		// If element is a job group, return jobs in that group
+		if (element && element.itemType === 'jobGroup' && element.runId && element.groupName) {
+			return this.getJobsInGroup(element.runId, element.groupName);
+		}
+
+		// If element is a run, return jobs/groups for that run
 		if (element && element.itemType === 'run' && element.runId) {
 			return this.getJobsForRun(element.runId);
 		}
@@ -109,34 +115,27 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	}
 
 	private async getJobsForRun(runId: number): Promise<RunsTreeItem[]> {
-		// Check if we already have jobs cached
 		const run = this.runs.find(r => r.id === runId);
+		const isRunInProgress = run && (run.status === 'in_progress' || run.status === 'queued' || run.status === 'pending' || !run.conclusion);
 		
-		if (run?.jobs && run.jobs.length > 0) {
-			return this.createJobItems(run.jobs);
+		// Check cache first for completed runs
+		let jobs: IWorkflowJob[] | undefined;
+		if (!isRunInProgress && this.jobsCache.has(runId)) {
+			jobs = this.jobsCache.get(runId);
+		} else if (run?.jobs && run.jobs.length > 0 && !isRunInProgress) {
+			jobs = run.jobs;
 		}
 
-		// Fetch jobs if we have a callback
-		if (this.fetchJobsCallback) {
+		// Fetch jobs if not cached or if run is in progress
+		if (!jobs && this.fetchJobsCallback) {
 			try {
-				const jobs = await this.fetchJobsCallback(runId);
+				jobs = await this.fetchJobsCallback(runId);
 				
 				// Cache the jobs
+				this.jobsCache.set(runId, jobs);
 				if (run) {
 					run.jobs = jobs;
 				}
-
-				if (jobs.length === 0) {
-					return [new RunsTreeItem(
-						'No jobs found',
-						'',
-						vscode.TreeItemCollapsibleState.None,
-						'info',
-						'info'
-					)];
-				}
-
-				return this.createJobItems(jobs);
 			} catch (error) {
 				console.error('Error fetching jobs:', error);
 				return [new RunsTreeItem(
@@ -149,23 +148,158 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 			}
 		}
 
-		return [new RunsTreeItem(
-			'Jobs not available',
-			'',
-			vscode.TreeItemCollapsibleState.None,
-			'info',
-			'info'
-		)];
+		if (!jobs || jobs.length === 0) {
+			return [new RunsTreeItem(
+				'No jobs found',
+				'',
+				vscode.TreeItemCollapsibleState.None,
+				'info',
+				'info'
+			)];
+		}
+
+		// Group jobs by base name (e.g., "verify (ubuntu)" -> "verify")
+		return this.createGroupedJobItems(jobs, runId);
 	}
 
-	private createJobItems(jobs: IWorkflowJob[]): RunsTreeItem[] {
+	private getJobsInGroup(runId: number, groupName: string): RunsTreeItem[] {
+		const jobs = this.jobsCache.get(runId);
+		if (!jobs) {
+			return [];
+		}
+
+		// Filter jobs that belong to this group
+		const groupJobs = jobs.filter(job => this.getJobBaseName(job.name) === groupName);
+		return this.createJobItems(groupJobs, true); // true = show variant name only
+	}
+
+	private getJobBaseName(jobName: string): string {
+		// Extract base name from job name like "verify / lint" -> "verify"
+		// First check for slash separator (GitHub Actions nested jobs)
+		if (jobName.includes(' / ')) {
+			return jobName.split(' / ')[0].trim();
+		}
+		// Then check for parentheses variant like "verify (ubuntu)" -> "verify"
+		const match = jobName.match(/^(.+?)\s*\([^)]+\)\s*$/);
+		return match ? match[1].trim() : jobName;
+	}
+
+	private getJobVariant(jobName: string): string | null {
+		// Extract variant from job name
+		// First check for slash separator like "verify / lint" -> "lint"
+		if (jobName.includes(' / ')) {
+			const parts = jobName.split(' / ');
+			return parts.slice(1).join(' / ').trim();
+		}
+		// Then check for parentheses like "verify (ubuntu)" -> "ubuntu"
+		const match = jobName.match(/\(([^)]+)\)\s*$/);
+		return match ? match[1] : null;
+	}
+
+	private createGroupedJobItems(jobs: IWorkflowJob[], runId: number): RunsTreeItem[] {
+		// Group jobs by their base name
+		const groups = new Map<string, IWorkflowJob[]>();
+		
+		for (const job of jobs) {
+			const baseName = this.getJobBaseName(job.name);
+			if (!groups.has(baseName)) {
+				groups.set(baseName, []);
+			}
+			groups.get(baseName)!.push(job);
+		}
+
+		const items: RunsTreeItem[] = [];
+		
+		for (const [groupName, groupJobs] of groups) {
+			if (groupJobs.length === 1) {
+				// Single job - show directly without grouping
+				items.push(...this.createJobItems(groupJobs));
+			} else {
+				// Multiple jobs - create a group folder
+				const groupStatus = this.getGroupStatus(groupJobs);
+				const passedCount = groupJobs.filter(j => j.conclusion === 'success' || j.conclusion === 'skipped').length;
+				const totalCount = groupJobs.length;
+				
+				const item = new RunsTreeItem(
+					groupName,
+					`${passedCount}/${totalCount} passed`,
+					vscode.TreeItemCollapsibleState.Collapsed,
+					this.getStatusIconName(groupStatus),
+					'jobGroup',
+					this.getStatusIconColor(groupStatus),
+					runId,
+					undefined,
+					groupName
+				);
+				
+				items.push(item);
+			}
+		}
+		
+		return items;
+	}
+
+	private getGroupStatus(jobs: IWorkflowJob[]): string {
+		// If any job is in progress, the group is in progress
+		if (jobs.some(j => j.status === 'in_progress')) {
+			return 'in_progress';
+		}
+		// If any job is queued/pending (and not completed), group is in progress
+		if (jobs.some(j => (j.status === 'queued' || j.status === 'pending') && !j.conclusion)) {
+			return 'in_progress';
+		}
+		// If any job failed, the group failed
+		if (jobs.some(j => j.conclusion === 'failure')) {
+			return 'failure';
+		}
+		// If any job was cancelled, the group was cancelled
+		if (jobs.some(j => j.conclusion === 'cancelled')) {
+			return 'cancelled';
+		}
+		// If all jobs passed or were skipped
+		if (jobs.every(j => j.conclusion === 'success' || j.conclusion === 'skipped')) {
+			return 'success';
+		}
+		// Mixed status - show as in progress
+		return 'in_progress';
+	}
+
+	private createJobItems(jobs: IWorkflowJob[], useVariantName: boolean = false): RunsTreeItem[] {
 		return jobs.map(job => {
 			const status = job.conclusion || job.status;
 			const duration = this.getJobDuration(job);
 
+			// Find current running step for in-progress jobs
+			let currentStep: string | null = null;
+			if (job.status === 'in_progress' && job.steps && job.steps.length > 0) {
+				// Find the step that is currently running
+				const runningStep = job.steps.find(s => s.status === 'in_progress');
+				if (runningStep) {
+					currentStep = runningStep.name;
+				} else {
+					// If no step is in_progress, find the last completed step or first queued
+					const completedSteps = job.steps.filter(s => s.conclusion);
+					const queuedSteps = job.steps.filter(s => s.status === 'queued');
+					if (completedSteps.length > 0) {
+						const lastCompleted = completedSteps[completedSteps.length - 1];
+						currentStep = `✓ ${lastCompleted.name}`;
+					} else if (queuedSteps.length > 0) {
+						currentStep = `Starting...`;
+					}
+				}
+			}
+
+			const description = currentStep
+				? `${this.getStatusLabel(status)} • ${currentStep}${duration ? ` • ${duration}` : ''}`
+				: `${this.getStatusLabel(status)}${duration ? ` • ${duration}` : ''}`;
+
+			// Use variant name if in a group, otherwise full name
+			const variant = this.getJobVariant(job.name);
+			const displayName = (useVariantName && variant) ? variant : job.name;
+
 			const item = new RunsTreeItem(
-				job.name,
-				`${this.getStatusLabel(status)}${duration ? ` • ${duration}` : ''}`,
+				displayName,
+				description,
 				vscode.TreeItemCollapsibleState.None,
 				this.getStatusIconName(status),
 				'job',
@@ -180,24 +314,57 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 				arguments: [job.html_url]
 			};
 
-			item.tooltip = new vscode.MarkdownString(
-				`**${job.name}**\n\n` +
+			// Build tooltip with step info
+			let tooltipContent = `**${job.name}**\n\n` +
 				`Status: ${this.getStatusLabel(status)}\n\n` +
-				(duration ? `Duration: ${duration}\n\n` : '') +
-				`Click to open on GitHub`
-			);
+				(currentStep ? `Current step: ${currentStep}\n\n` : '') +
+				(duration ? `Duration: ${duration}\n\n` : '');
+			
+			// Add step list for in-progress jobs
+			if (job.steps && job.steps.length > 0) {
+				tooltipContent += `**Steps:**\n`;
+				for (const step of job.steps) {
+					const stepIcon = this.getStepIcon(step.status, step.conclusion);
+					tooltipContent += `${stepIcon} ${step.name}\n`;
+				}
+				tooltipContent += '\n';
+			}
+			
+			tooltipContent += `Click to open on GitHub`;
+
+			item.tooltip = new vscode.MarkdownString(tooltipContent);
 
 			return item;
 		});
 	}
 
+	private getStepIcon(status: string, conclusion: string | null): string {
+		if (conclusion === 'success') {
+			return '✓';
+		}
+		if (conclusion === 'failure') {
+			return '✗';
+		}
+		if (conclusion === 'skipped') {
+			return '○';
+		}
+		if (status === 'in_progress') {
+			return '▶';
+		}
+		if (status === 'queued' || status === 'pending') {
+			return '◇';
+		}
+		return '○';
+	}
+
 	private getJobDuration(job: IWorkflowJob): string | null {
-		if (!job.started_at || !job.completed_at) {
+		if (!job.started_at) {
 			return null;
 		}
 
 		const start = new Date(job.started_at);
-		const end = new Date(job.completed_at);
+		// For in-progress jobs, calculate time since start
+		const end = job.completed_at ? new Date(job.completed_at) : new Date();
 		const seconds = Math.floor((end.getTime() - start.getTime()) / 1000);
 
 		if (seconds < 60) {
@@ -309,7 +476,8 @@ export class RunsTreeItem extends vscode.TreeItem {
 		public readonly itemType: TreeItemType,
 		public readonly iconColor?: string,
 		public readonly runId?: number,
-		public readonly url?: string
+		public readonly url?: string,
+		public readonly groupName?: string
 	) {
 		super(label, collapsibleState);
 		this.description = description;

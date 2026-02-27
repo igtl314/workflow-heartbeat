@@ -75,4 +75,13 @@ export interface IWorkflowJob {
 	html_url: string;
 	started_at: string | null;
 	completed_at: string | null;
+	steps?: IWorkflowStep[];
+}
+
+// Workflow step interface
+export interface IWorkflowStep {
+	name: string;
+	status: string;
+	conclusion: string | null;
+	number: number;
 }

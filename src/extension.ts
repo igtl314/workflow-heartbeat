@@ -45,20 +45,39 @@ export function activate(context: vscode.ExtensionContext) {
 				}
 			}
 
-			const { data } = await octokit.rest.actions.listJobsForWorkflowRun({
-				owner: state.owner,
-				repo: state.repo,
-				run_id: runId
-			});
+			// Fetch all jobs with pagination (default is only 30)
+			const jobs: any[] = [];
+			let page = 1;
+			let hasMore = true;
+			
+			while (hasMore) {
+				const { data } = await octokit.rest.actions.listJobsForWorkflowRun({
+					owner: state.owner,
+					repo: state.repo,
+					run_id: runId,
+					per_page: 100,
+					page: page
+				});
+				
+				jobs.push(...data.jobs);
+				hasMore = data.jobs.length === 100;
+				page++;
+			}
 
-			return data.jobs.map((job: any) => ({
+			return jobs.map((job: any) => ({
 				id: job.id,
 				name: job.name,
 				status: job.status,
 				conclusion: job.conclusion,
 				html_url: job.html_url,
 				started_at: job.started_at,
-				completed_at: job.completed_at
+				completed_at: job.completed_at,
+				steps: job.steps?.map((step: any) => ({
+					name: step.name,
+					status: step.status,
+					conclusion: step.conclusion,
+					number: step.number
+				}))
 			}));
 		} catch (error) {
 			console.error('Failed to fetch jobs:', error);
