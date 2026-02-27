@@ -22,7 +22,7 @@
         {
           "id": "workflow-alerter",
           "title": "Workflow Alerter",
-          "icon": "$(play-circle)"
+          "icon": "resources/icon.svg"
         }
       ]
     },
