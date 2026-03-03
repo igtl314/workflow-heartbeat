@@ -37,6 +37,16 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "Workflow Heartbeat",
+      "properties": {
+        "woa.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show workflow status in the status bar"
+        }
+      }
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -95,6 +105,11 @@
         "command": "woa.selectNotifyUsers",
         "title": "Workflow Heartbeat: Select Users to Notify For",
         "icon": "$(person)"
+      },
+      {
+        "command": "woa.toggleStatusBar",
+        "title": "Workflow Heartbeat: Toggle Status Bar",
+        "icon": "$(layout-statusbar)"
       }
     ],
     "menus": {

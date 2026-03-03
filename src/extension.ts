@@ -98,11 +98,20 @@ export function activate(context: vscode.ExtensionContext) {
 	const stopMonitoringCmd = vscode.commands.registerCommand('woa.stopMonitoring', () => stopMonitoring(context));
 	const refreshStatusCmd = vscode.commands.registerCommand('woa.refreshStatus', () => refreshStatus(context));
 	const selectNotifyUsersCmd = vscode.commands.registerCommand('woa.selectNotifyUsers', () => selectNotifyUsers(context));
+	const toggleStatusBarCmd = vscode.commands.registerCommand('woa.toggleStatusBar', () => toggleStatusBar());
 	const openRunCmd = vscode.commands.registerCommand('woa.openRun', (url: string) => {
 		vscode.env.openExternal(vscode.Uri.parse(url));
 	});
 
-	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, openRunCmd);
+	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, toggleStatusBarCmd, openRunCmd);
+
+	// Listen for configuration changes
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+		if (e.affectsConfiguration('woa.showStatusBar')) {
+			updateStatusBar(currentState);
+			configViewProvider.refresh();
+		}
+	}));
 
 	if (currentState) {
 		cachedGitHubInfo = { owner: currentState.owner, repo: currentState.repo };
@@ -137,7 +146,21 @@ export function getStatusBarTextColor(lastStatus: string | undefined): string | 
 	return undefined;
 }
 
+async function toggleStatusBar(): Promise<void> {
+	const config = vscode.workspace.getConfiguration('woa');
+	const currentValue = config.get<boolean>('showStatusBar', true);
+	await config.update('showStatusBar', !currentValue, vscode.ConfigurationTarget.Global);
+}
+
 function updateStatusBar(state: IMonitoringState | undefined) {
+	const config = vscode.workspace.getConfiguration('woa');
+	const showStatusBar = config.get<boolean>('showStatusBar', true);
+
+	if (!showStatusBar) {
+		statusBarItem.hide();
+		return;
+	}
+
 	if (!state) {
 		statusBarItem.text = '$(eye) Monitor Workflow';
 		statusBarItem.backgroundColor = undefined;

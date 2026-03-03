@@ -54,6 +54,23 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 		workflowItem.contextValue = 'workflow';
 		items.push(workflowItem);
 
+		// Status bar toggle
+		const config = vscode.workspace.getConfiguration('woa');
+		const showStatusBar = config.get<boolean>('showStatusBar', true);
+		const statusBarItem = new ConfigTreeItem(
+			'Status Bar',
+			showStatusBar ? 'Enabled' : 'Disabled',
+			vscode.TreeItemCollapsibleState.None,
+			showStatusBar ? 'pass-filled' : 'circle-large-outline',
+			'notificationsInfoIcon.foreground' // Blue color
+		);
+		statusBarItem.command = {
+			command: 'woa.toggleStatusBar',
+			title: 'Toggle Status Bar'
+		};
+		statusBarItem.contextValue = 'statusBar';
+		items.push(statusBarItem);
+
 		// Status indicator (only show if monitoring)
 		if (state) {
 			const statusItem = new ConfigTreeItem(
