@@ -107,6 +107,11 @@
         "icon": "$(person)"
       },
       {
+        "command": "woa.selectFilterUsers",
+        "title": "Workflow Heartbeat: Filter Out Users from Runs",
+        "icon": "$(filter)"
+      },
+      {
         "command": "woa.toggleStatusBar",
         "title": "Workflow Heartbeat: Toggle Status Bar",
         "icon": "$(layout-statusbar)"

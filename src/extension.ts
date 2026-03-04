@@ -98,12 +98,13 @@ export function activate(context: vscode.ExtensionContext) {
 	const stopMonitoringCmd = vscode.commands.registerCommand('woa.stopMonitoring', () => stopMonitoring(context));
 	const refreshStatusCmd = vscode.commands.registerCommand('woa.refreshStatus', () => refreshStatus(context));
 	const selectNotifyUsersCmd = vscode.commands.registerCommand('woa.selectNotifyUsers', () => selectNotifyUsers(context));
+	const selectFilterUsersCmd = vscode.commands.registerCommand('woa.selectFilterUsers', () => selectFilterUsers(context));
 	const toggleStatusBarCmd = vscode.commands.registerCommand('woa.toggleStatusBar', () => toggleStatusBar());
 	const openRunCmd = vscode.commands.registerCommand('woa.openRun', (url: string) => {
 		vscode.env.openExternal(vscode.Uri.parse(url));
 	});
 
-	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, toggleStatusBarCmd, openRunCmd);
+	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd);
 
 	// Listen for configuration changes
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
@@ -520,27 +521,34 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 	}
 
 	try {
-		// Fetch recent runs for the runs view
+		// Fetch recent runs for the runs view (fetch more to allow filtering)
 		const { data: runsData } = await octokit.rest.actions.listWorkflowRuns({
 			owner: state.owner,
 			repo: state.repo,
 			workflow_id: state.workflowId,
 			branch: state.branch,
-			per_page: 10
+			per_page: 30
 		});
 
-		// Update runs view
-		const runs: IWorkflowRun[] = runsData.workflow_runs.map((run: any) => ({
-			id: run.id,
-			name: run.name,
-			status: run.status,
-			conclusion: run.conclusion,
-			html_url: run.html_url,
-			created_at: run.created_at,
-			head_sha: run.head_sha,
-			run_number: run.run_number,
-			actor: run.actor?.login || 'unknown'
-		}));
+		// Update runs view - filter out specified users and take first 10
+		const filterOutUsers = (state.filterOutUsers || []).map(u => u.toLowerCase());
+		const runs: IWorkflowRun[] = runsData.workflow_runs
+			.filter((run: any) => {
+				const actor = (run.actor?.login || '').toLowerCase();
+				return !filterOutUsers.includes(actor);
+			})
+			.slice(0, 10)
+			.map((run: any) => ({
+				id: run.id,
+				name: run.name,
+				status: run.status,
+				conclusion: run.conclusion,
+				html_url: run.html_url,
+				created_at: run.created_at,
+				head_sha: run.head_sha,
+				run_number: run.run_number,
+				actor: run.actor?.login || 'unknown'
+			}));
 		runsViewProvider.setRuns(runs);
 
 		if (runsData.workflow_runs.length === 0) {
@@ -679,6 +687,125 @@ async function selectNotifyUsers(context: vscode.ExtensionContext): Promise<void
 
 	} catch (error) {
 		console.error('Error selecting notify users:', error);
+		vscode.window.showErrorMessage(`Failed to select users: ${error}`);
+	}
+}
+
+async function selectFilterUsers(context: vscode.ExtensionContext): Promise<void> {
+	if (!currentState) {
+		vscode.window.showWarningMessage('Please set up monitoring first.');
+		return;
+	}
+
+	try {
+		// Get octokit instance
+		const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: false });
+		if (!session) {
+			vscode.window.showWarningMessage('GitHub authentication required.');
+			return;
+		}
+		const oktokitInstance = await getOctokit(session.accessToken);
+
+		// Fetch workflow runs from the last 30 days with progress indicator
+		const actors = await vscode.window.withProgress({
+			location: vscode.ProgressLocation.Notification,
+			title: 'Loading users from workflow runs...',
+			cancellable: false
+		}, async () => {
+			const oneDayAgo = new Date();
+			oneDayAgo.setHours(oneDayAgo.getHours() - 24);
+			
+			const { data: runsData } = await oktokitInstance.rest.actions.listWorkflowRuns({
+				owner: currentState!.owner,
+				repo: currentState!.repo,
+				workflow_id: currentState!.workflowId,
+				created: `>=${oneDayAgo.toISOString()}`,
+				per_page: 100
+			});
+
+			// Extract all unique actors
+			const actorSet = new Set<string>();
+			for (const run of runsData.workflow_runs) {
+				const actor = run.actor?.login;
+				if (actor) {
+					actorSet.add(actor);
+				}
+			}
+
+			// Also include any currently filtered users so they remain selectable
+			if (currentState!.filterOutUsers) {
+				for (const user of currentState!.filterOutUsers) {
+					actorSet.add(user);
+				}
+			}
+
+			return actorSet;
+		});
+
+		if (actors.size === 0) {
+			// Allow manual entry if no actors found
+			const manualEntry = await vscode.window.showInputBox({
+				prompt: 'Enter usernames to filter out (comma-separated)',
+				placeHolder: 'e.g., renovate[bot], dependabot[bot]',
+				value: currentState.filterOutUsers?.join(', ') || ''
+			});
+
+			if (manualEntry === undefined) {
+				return; // User cancelled
+			}
+
+			currentState.filterOutUsers = manualEntry
+				.split(',')
+				.map(s => s.trim())
+				.filter(s => s.length > 0);
+			await context.workspaceState.update('monitoringState', currentState);
+			configViewProvider.refresh();
+			runsViewProvider.refresh();
+
+			const message = currentState.filterOutUsers.length > 0
+				? `Filtering out runs from: ${currentState.filterOutUsers.join(', ')}`
+				: 'Showing runs from all users';
+			vscode.window.showInformationMessage(message);
+			return;
+		}
+
+		// Prepare quick pick items
+		const currentlySelected = currentState.filterOutUsers || [];
+
+		const userItems = Array.from(actors).sort().map(actor => {
+			return {
+				label: actor,
+				picked: currentlySelected.includes(actor),
+				username: actor
+			};
+		});
+
+		// Show multi-select quick pick
+		const selectedUsers = await vscode.window.showQuickPick(userItems, {
+			placeHolder: 'Select users to filter OUT from runs view (e.g., bots)',
+			title: 'Workflow Heartbeat: Filter Out Users from Runs',
+			canPickMany: true
+		});
+
+		if (selectedUsers === undefined) {
+			return; // User cancelled
+		}
+
+		// Update state with selected users
+		currentState.filterOutUsers = selectedUsers.map(item => item.username);
+		await context.workspaceState.update('monitoringState', currentState);
+		configViewProvider.refresh();
+		
+		// Trigger a refresh of the runs view to apply the filter
+		refreshStatus(context);
+
+		const message = currentState.filterOutUsers.length > 0
+			? `Filtering out runs from: ${currentState.filterOutUsers.join(', ')}`
+			: 'Showing runs from all users';
+		vscode.window.showInformationMessage(message);
+
+	} catch (error) {
+		console.error('Error selecting filter users:', error);
 		vscode.window.showErrorMessage(`Failed to select users: ${error}`);
 	}
 }

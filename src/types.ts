@@ -44,6 +44,7 @@ export interface IMonitoringState {
 	lastRunId?: number;
 	lastStatus?: string;
 	notifyForUsers?: string[]; // Only notify for failed/cancelled workflows from these users (empty = notify for all)
+	filterOutUsers?: string[]; // Filter out runs from these users in the runs view (e.g., bots)
 }
 
 // Quick pick item interfaces

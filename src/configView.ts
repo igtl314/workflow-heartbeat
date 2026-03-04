@@ -110,6 +110,23 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 			notifyUsersItem.contextValue = 'notifyUsers';
 			items.push(notifyUsersItem);
 
+			// Filter out users
+			const filterUsersLabel = state.filterOutUsers && state.filterOutUsers.length > 0
+				? state.filterOutUsers.join(', ')
+				: 'None';
+			const filterUsersItem = new ConfigTreeItem(
+				'Filter Out',
+				filterUsersLabel,
+				vscode.TreeItemCollapsibleState.None,
+				'filter'
+			);
+			filterUsersItem.command = {
+				command: 'woa.selectFilterUsers',
+				title: 'Select Users to Filter Out'
+			};
+			filterUsersItem.contextValue = 'filterUsers';
+			items.push(filterUsersItem);
+
 			// Stop monitoring action
 			const stopItem = new ConfigTreeItem(
 				'Stop Monitoring',
