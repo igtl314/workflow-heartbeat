@@ -103,8 +103,14 @@ export function activate(context: vscode.ExtensionContext) {
 	const openRunCmd = vscode.commands.registerCommand('woa.openRun', (url: string) => {
 		vscode.env.openExternal(vscode.Uri.parse(url));
 	});
+	const openWorkflowPageCmd = vscode.commands.registerCommand('woa.openWorkflowPage', () => {
+		if (currentState && currentState.lastRunId) {
+			const url = `https://github.com/${currentState.owner}/${currentState.repo}/actions/runs/${currentState.lastRunId}`;
+			vscode.env.openExternal(vscode.Uri.parse(url));
+		}
+	});
 
-	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd);
+	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd);
 
 	// Listen for configuration changes
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
@@ -164,6 +170,8 @@ function updateStatusBar(state: IMonitoringState | undefined) {
 
 	if (!state) {
 		statusBarItem.text = '$(eye) Monitor Workflow';
+		statusBarItem.command = 'woa.selectWorkflow';
+		statusBarItem.tooltip = 'Click to select a workflow to monitor';
 		statusBarItem.backgroundColor = undefined;
 		statusBarItem.color = undefined;
 		statusBarItem.show();
@@ -172,6 +180,8 @@ function updateStatusBar(state: IMonitoringState | undefined) {
 
 	const statusIcon = getStatusIcon(state.lastStatus);
 	statusBarItem.text = `${statusIcon} ${state.workflowName} (${state.branch})`;
+	statusBarItem.command = 'woa.openWorkflowPage';
+	statusBarItem.tooltip = 'Click to open workflow on GitHub';
 
 	// Set background color for error and pending states
 	const bgColor = getStatusBarBackgroundColor(state.lastStatus);
