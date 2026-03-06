@@ -28,7 +28,8 @@ export function activate(context: vscode.ExtensionContext) {
 	runsViewProvider = new RunsViewProvider(context, () => currentState);
 	
 	vscode.window.registerTreeDataProvider('woa.configView', configViewProvider);
-	vscode.window.registerTreeDataProvider('woa.runsView', runsViewProvider);
+	const runsTreeView = vscode.window.createTreeView('woa.runsView', { treeDataProvider: runsViewProvider });
+	runsViewProvider.setTreeView(runsTreeView);
 
 	// Set up callback for fetching jobs when expanding a run
 	runsViewProvider.setFetchJobsCallback(async (runId: number): Promise<IWorkflowJob[]> => {
@@ -112,8 +113,11 @@ export function activate(context: vscode.ExtensionContext) {
 	const showMoreRunsCmd = vscode.commands.registerCommand('woa.showMoreRuns', () => {
 		runsViewProvider.showMoreRuns();
 	});
+	const toggleHidePassedRunsCmd = vscode.commands.registerCommand('woa.toggleHidePassedRuns', () => {
+		runsViewProvider.toggleHidePassedRuns();
+	});
 
-	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd);
+	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd, toggleHidePassedRunsCmd);
 
 	// Listen for configuration changes
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {

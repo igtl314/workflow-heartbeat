@@ -17,6 +17,8 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	private fetchJobsCallback?: (runId: number) => Promise<IWorkflowJob[]>;
 	private displayCount: number = 10;
 	private totalAvailable: number = 0;
+	private _hidePassedRuns: boolean = false;
+	private treeView?: vscode.TreeView<RunsTreeItem>;
 
 	constructor(
 		private context: vscode.ExtensionContext,
@@ -42,6 +44,24 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 
 	resetDisplayCount(): void {
 		this.displayCount = 10;
+	}
+
+	setTreeView(treeView: vscode.TreeView<RunsTreeItem>): void {
+		this.treeView = treeView;
+		this.treeView.description = 'Showing all';
+	}
+
+	get hidePassedRuns(): boolean {
+		return this._hidePassedRuns;
+	}
+
+	toggleHidePassedRuns(): void {
+		this._hidePassedRuns = !this._hidePassedRuns;
+		vscode.commands.executeCommand('setContext', 'woa.hidePassedRuns', this._hidePassedRuns);
+		if (this.treeView) {
+			this.treeView.description = this._hidePassedRuns ? 'Hiding passed' : 'Showing all';
+		}
+		this.refresh();
 	}
 
 	getActors(): string[] {
@@ -97,7 +117,16 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 			return [noRunsItem];
 		}
 
-		const items: RunsTreeItem[] = this.runs.slice(0, this.displayCount).map(run => {
+		// Filter out passed runs if the filter is enabled
+		let filteredRuns = this.runs;
+		if (this._hidePassedRuns) {
+			filteredRuns = this.runs.filter(run => {
+				const status = run.effectiveStatus || run.conclusion || run.status;
+				return status !== 'success';
+			});
+		}
+
+		const items: RunsTreeItem[] = filteredRuns.slice(0, this.displayCount).map(run => {
 			const status = run.effectiveStatus || run.conclusion || run.status;
 			const timeAgo = this.getTimeAgo(run.created_at);
 			const commitShort = run.head_sha.substring(0, 7);
@@ -126,10 +155,10 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 		});
 
 		// Add "Show More" button if there are more runs available
-		if (this.runs.length > this.displayCount || this.totalAvailable > this.runs.length) {
+		if (filteredRuns.length > this.displayCount || this.totalAvailable > filteredRuns.length) {
 			const showMoreItem = new RunsTreeItem(
 				'Show More Runs',
-				`${Math.min(this.displayCount, this.runs.length)} of ${this.totalAvailable} shown`,
+				`${Math.min(this.displayCount, filteredRuns.length)} of ${this._hidePassedRuns ? filteredRuns.length : this.totalAvailable} shown`,
 				vscode.TreeItemCollapsibleState.None,
 				'ellipsis',
 				'showMore'

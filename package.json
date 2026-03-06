@@ -115,10 +115,25 @@
         "command": "woa.toggleStatusBar",
         "title": "Workflow Heartbeat: Toggle Status Bar",
         "icon": "$(layout-statusbar)"
+      },
+      {
+        "command": "woa.toggleHidePassedRuns",
+        "title": "Workflow Heartbeat: Hide Passed Runs",
+        "icon": "$(filter)"
       }
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "woa.toggleHidePassedRuns",
+          "when": "view == woa.runsView && !woa.hidePassedRuns",
+          "group": "navigation"
+        },
+        {
+          "command": "woa.toggleHidePassedRuns",
+          "when": "view == woa.runsView && woa.hidePassedRuns",
+          "group": "navigation"
+        },
         {
           "command": "woa.refreshStatus",
           "when": "view == woa.runsView",
