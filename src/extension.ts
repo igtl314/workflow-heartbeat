@@ -109,8 +109,11 @@ export function activate(context: vscode.ExtensionContext) {
 			vscode.env.openExternal(vscode.Uri.parse(url));
 		}
 	});
+	const showMoreRunsCmd = vscode.commands.registerCommand('woa.showMoreRuns', () => {
+		runsViewProvider.showMoreRuns();
+	});
 
-	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd);
+	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd);
 
 	// Listen for configuration changes
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
@@ -482,6 +485,9 @@ async function startMonitoring(context: vscode.ExtensionContext, state: IMonitor
 		clearInterval(pollingInterval);
 	}
 
+	// Reset the runs view display count when starting fresh
+	runsViewProvider.resetDisplayCount();
+
 	// Save state
 	currentState = state;
 	await context.workspaceState.update('monitoringState', state);
@@ -568,23 +574,22 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 	}
 
 	try {
-		// Fetch recent runs for the runs view (fetch more to allow filtering)
+		// Fetch recent runs for the runs view (fetch more to allow "show more" feature)
 		const { data: runsData } = await octokit.rest.actions.listWorkflowRuns({
 			owner: state.owner,
 			repo: state.repo,
 			workflow_id: state.workflowId,
 			branch: state.branch,
-			per_page: 30
+			per_page: 100
 		});
 
-		// Update runs view - filter out specified users and take first 10
+		// Update runs view - filter out specified users
 		const filterOutUsers = (state.filterOutUsers || []).map(u => u.toLowerCase());
 		const filteredRuns = runsData.workflow_runs
 			.filter((run: any) => {
 				const actor = (run.actor?.login || '').toLowerCase();
 				return !filterOutUsers.includes(actor);
-			})
-			.slice(0, 10);
+			});
 		
 		// Build runs array and check for failed steps in in-progress runs
 		const runs: IWorkflowRun[] = [];
@@ -611,7 +616,7 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 			
 			runs.push(baseRun);
 		}
-		runsViewProvider.setRuns(runs);
+		runsViewProvider.setRuns(runs, filteredRuns.length);
 
 		if (runsData.workflow_runs.length === 0) {
 			return; // No runs yet

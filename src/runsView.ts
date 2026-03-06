@@ -6,7 +6,7 @@ export interface IWorkflowRunWithJobs extends IWorkflowRun {
 	jobs?: IWorkflowJob[];
 }
 
-type TreeItemType = 'run' | 'job' | 'info' | 'jobGroup';
+type TreeItemType = 'run' | 'job' | 'info' | 'jobGroup' | 'showMore';
 
 export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	private _onDidChangeTreeData: vscode.EventEmitter<RunsTreeItem | undefined | null | void> = new vscode.EventEmitter<RunsTreeItem | undefined | null | void>();
@@ -15,6 +15,8 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	private runs: IWorkflowRunWithJobs[] = [];
 	private jobsCache: Map<number, IWorkflowJob[]> = new Map();
 	private fetchJobsCallback?: (runId: number) => Promise<IWorkflowJob[]>;
+	private displayCount: number = 10;
+	private totalAvailable: number = 0;
 
 	constructor(
 		private context: vscode.ExtensionContext,
@@ -25,9 +27,21 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 		this._onDidChangeTreeData.fire();
 	}
 
-	setRuns(runs: IWorkflowRunWithJobs[]): void {
+	setRuns(runs: IWorkflowRunWithJobs[], totalAvailable?: number): void {
 		this.runs = runs;
+		if (totalAvailable !== undefined) {
+			this.totalAvailable = totalAvailable;
+		}
 		this.refresh();
+	}
+
+	showMoreRuns(): void {
+		this.displayCount += 10;
+		this.refresh();
+	}
+
+	resetDisplayCount(): void {
+		this.displayCount = 10;
 	}
 
 	getActors(): string[] {
@@ -83,7 +97,7 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 			return [noRunsItem];
 		}
 
-		const items: RunsTreeItem[] = this.runs.map(run => {
+		const items: RunsTreeItem[] = this.runs.slice(0, this.displayCount).map(run => {
 			const status = run.effectiveStatus || run.conclusion || run.status;
 			const timeAgo = this.getTimeAgo(run.created_at);
 			const commitShort = run.head_sha.substring(0, 7);
@@ -110,6 +124,22 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 
 			return item;
 		});
+
+		// Add "Show More" button if there are more runs available
+		if (this.runs.length > this.displayCount || this.totalAvailable > this.runs.length) {
+			const showMoreItem = new RunsTreeItem(
+				'Show More Runs',
+				`${Math.min(this.displayCount, this.runs.length)} of ${this.totalAvailable} shown`,
+				vscode.TreeItemCollapsibleState.None,
+				'ellipsis',
+				'showMore'
+			);
+			showMoreItem.command = {
+				command: 'woa.showMoreRuns',
+				title: 'Show More Runs'
+			};
+			items.push(showMoreItem);
+		}
 
 		return items;
 	}
