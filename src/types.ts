@@ -60,6 +60,7 @@ export interface IWorkflowRun {
 	name: string;
 	status: string;
 	conclusion: string | null;
+	effectiveStatus?: string; // Computed status that accounts for failed steps in in-progress runs
 	html_url: string;
 	created_at: string;
 	head_sha: string;

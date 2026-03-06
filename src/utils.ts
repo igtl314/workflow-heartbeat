@@ -25,6 +25,7 @@ export function getStatusIcon(status: string | undefined): string {
 		case 'in_progress':
 		case 'queued':
 		case 'pending':
+		case 'in_progress_failing': // Still running but has failures
 			return '$(sync~spin)';
 		default:
 			return '$(eye)';

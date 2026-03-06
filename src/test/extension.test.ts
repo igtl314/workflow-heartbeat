@@ -45,6 +45,11 @@ suite('Status Bar Color Tests', () => {
 		assert.strictEqual(color, 'statusBarItem.warningBackground');
 	});
 
+	test('should return red background for in_progress_failing status', () => {
+		const color = getStatusBarBackgroundColor('in_progress_failing');
+		assert.strictEqual(color, 'statusBarItem.errorBackground');
+	});
+
 	test('should return undefined background for undefined status', () => {
 		const color = getStatusBarBackgroundColor(undefined);
 		assert.strictEqual(color, undefined);

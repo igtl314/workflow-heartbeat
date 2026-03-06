@@ -15,7 +15,7 @@ let currentState: IMonitoringState | undefined;
 // Cache for GitHub info
 let cachedGitHubInfo: { owner: string; repo: string } | undefined;
 
-const POLLING_INTERVAL_MS = 60000; // Poll every 60 seconds
+const POLLING_INTERVAL_MS = 60_000; // Poll every 60 seconds
 
 export function activate(context: vscode.ExtensionContext) {
 	console.log('Workflow Heartbeat is now active!');
@@ -137,7 +137,7 @@ export function deactivate() {
 
 // Exported for testing
 export function getStatusBarBackgroundColor(lastStatus: string | undefined): string | undefined {
-	if (lastStatus === 'failure' || lastStatus === 'cancelled') {
+	if (lastStatus === 'failure' || lastStatus === 'cancelled' || lastStatus === 'in_progress_failing') {
 		return 'statusBarItem.errorBackground';
 	} else if (lastStatus === 'in_progress' || lastStatus === 'queued' || lastStatus === 'pending') {
 		return 'statusBarItem.warningBackground';
@@ -511,6 +511,43 @@ async function startMonitoring(context: vscode.ExtensionContext, state: IMonitor
 	}, POLLING_INTERVAL_MS);
 }
 
+/**
+ * Check if an in-progress run has any failed jobs or steps
+ */
+async function checkRunForFailedSteps(state: IMonitoringState, runId: number): Promise<boolean> {
+	if (!octokit) {
+		return false;
+	}
+
+	try {
+		const { data } = await octokit.rest.actions.listJobsForWorkflowRun({
+			owner: state.owner,
+			repo: state.repo,
+			run_id: runId,
+			per_page: 100
+		});
+
+		for (const job of data.jobs) {
+			// Check if job itself has failed
+			if (job.conclusion === 'failure') {
+				return true;
+			}
+			// Check if any step has failed
+			if (job.steps) {
+				for (const step of job.steps) {
+					if (step.conclusion === 'failure') {
+						return true;
+					}
+				}
+			}
+		}
+	} catch (error) {
+		console.error('Error checking for failed steps:', error);
+	}
+
+	return false;
+}
+
 async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMonitoringState): Promise<void> {
 	// Don't check if no workflow is selected
 	if (!state.workflowId) {
@@ -542,13 +579,17 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 
 		// Update runs view - filter out specified users and take first 10
 		const filterOutUsers = (state.filterOutUsers || []).map(u => u.toLowerCase());
-		const runs: IWorkflowRun[] = runsData.workflow_runs
+		const filteredRuns = runsData.workflow_runs
 			.filter((run: any) => {
 				const actor = (run.actor?.login || '').toLowerCase();
 				return !filterOutUsers.includes(actor);
 			})
-			.slice(0, 10)
-			.map((run: any) => ({
+			.slice(0, 10);
+		
+		// Build runs array and check for failed steps in in-progress runs
+		const runs: IWorkflowRun[] = [];
+		for (const run of filteredRuns) {
+			const baseRun: IWorkflowRun = {
 				id: run.id,
 				name: run.name,
 				status: run.status,
@@ -558,7 +599,18 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 				head_sha: run.head_sha,
 				run_number: run.run_number,
 				actor: run.actor?.login || 'unknown'
-			}));
+			};
+			
+			// Check for failed steps in in-progress runs
+			if (!run.conclusion && (run.status === 'in_progress' || run.status === 'queued' || run.status === 'pending')) {
+				const hasFailure = await checkRunForFailedSteps(state, run.id);
+				if (hasFailure) {
+					baseRun.effectiveStatus = 'in_progress_failing';
+				}
+			}
+			
+			runs.push(baseRun);
+		}
 		runsViewProvider.setRuns(runs);
 
 		if (runsData.workflow_runs.length === 0) {
@@ -566,12 +618,25 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 		}
 
 		const latestRun = runsData.workflow_runs[0];
+		const latestRunData = runs.find(r => r.id === latestRun.id);
 		const previousStatus = state.lastStatus;
 		const previousRunId = state.lastRunId;
 
-		// Update state
+		// Update state - use already calculated effectiveStatus if available, otherwise calculate
 		state.lastRunId = latestRun.id;
-		state.lastStatus = latestRun.conclusion ?? latestRun.status ?? undefined;
+		if (latestRunData) {
+			state.lastStatus = latestRunData.effectiveStatus || (latestRun.conclusion ?? latestRun.status ?? undefined);
+		} else {
+			// Latest run was filtered out, need to check for failed steps separately
+			let effectiveStatus = latestRun.conclusion ?? latestRun.status ?? undefined;
+			if (!latestRun.conclusion && (latestRun.status === 'in_progress' || latestRun.status === 'queued' || latestRun.status === 'pending')) {
+				const hasFailure = await checkRunForFailedSteps(state, latestRun.id);
+				if (hasFailure) {
+					effectiveStatus = 'in_progress_failing';
+				}
+			}
+			state.lastStatus = effectiveStatus;
+		}
 		currentState = state;
 		await context.workspaceState.update('monitoringState', state);
 

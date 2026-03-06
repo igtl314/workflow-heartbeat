@@ -84,7 +84,7 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 		}
 
 		const items: RunsTreeItem[] = this.runs.map(run => {
-			const status = run.conclusion || run.status;
+			const status = run.effectiveStatus || run.conclusion || run.status;
 			const timeAgo = this.getTimeAgo(run.created_at);
 			const commitShort = run.head_sha.substring(0, 7);
 
@@ -240,12 +240,24 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	}
 
 	private getGroupStatus(jobs: IWorkflowJob[]): string {
-		// If any job is in progress, the group is in progress
+		// Check for failed steps in in_progress jobs first
+		const hasFailedSteps = jobs.some(j => 
+			(j.status === 'in_progress' || !j.conclusion) && 
+			j.steps?.some(s => s.conclusion === 'failure')
+		);
+		// If any job is in progress, check for failures in steps
 		if (jobs.some(j => j.status === 'in_progress')) {
+			// Check if any job has failed or any step has failed
+			if (jobs.some(j => j.conclusion === 'failure') || hasFailedSteps) {
+				return 'in_progress_failing';
+			}
 			return 'in_progress';
 		}
 		// If any job is queued/pending (and not completed), group is in progress
 		if (jobs.some(j => (j.status === 'queued' || j.status === 'pending') && !j.conclusion)) {
+			if (jobs.some(j => j.conclusion === 'failure') || hasFailedSteps) {
+				return 'in_progress_failing';
+			}
 			return 'in_progress';
 		}
 		// If any job failed, the group failed
@@ -266,7 +278,14 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 
 	private createJobItems(jobs: IWorkflowJob[], useVariantName: boolean = false): RunsTreeItem[] {
 		return jobs.map(job => {
-			const status = job.conclusion || job.status;
+			// Determine effective status - check for failed steps in in-progress jobs
+			let status = job.conclusion || job.status;
+			if (!job.conclusion && (job.status === 'in_progress' || job.status === 'queued' || job.status === 'pending')) {
+				const hasFailedStep = job.steps?.some(s => s.conclusion === 'failure');
+				if (hasFailedStep) {
+					status = 'in_progress_failing';
+				}
+			}
 			const duration = this.getJobDuration(job);
 
 			// Find current running step for in-progress jobs
@@ -395,6 +414,8 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 				return 'Skipped';
 			case 'in_progress':
 				return 'Running';
+			case 'in_progress_failing':
+				return 'Failing';
 			case 'queued':
 				return 'Queued';
 			case 'pending':
@@ -417,6 +438,7 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 			case 'in_progress':
 			case 'queued':
 			case 'pending':
+			case 'in_progress_failing':
 				return 'sync~spin';
 			default:
 				return 'question';
@@ -429,6 +451,7 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 				return 'testing.iconPassed';
 			case 'failure':
 			case 'cancelled':
+			case 'in_progress_failing':
 				return 'testing.iconFailed';
 			case 'in_progress':
 			case 'queued':
