@@ -7,11 +7,15 @@ Monitor GitHub Actions workflows directly from VS Code and get notified when the
 **Status Bar Monitoring**
 - See your workflow status at a glance in the status bar
 - Color-coded indicators: green for success, red for failure, yellow for in-progress
-- Click to configure monitoring
+- Click on status bar to open the workflow run summary on GitHub
+- Toggle button to show/hide the status bar indicator
 
 **Activity Bar Panel**
 - **Configuration View**: Select branch, workflow, and filter notifications by user
-- **Recent Runs View**: Browse the last 10 workflow runs with expandable job details
+- **GitHub Account Display**: Shows your logged-in GitHub user with sign in/sign out options
+- **Recent Runs View**: Browse workflow runs with expandable job details
+- **Filter Options**: Hide passed runs or filter out specific users from the view
+- **Load More**: "Show More Runs" button to load additional workflow runs
 
 **Smart Notifications**
 - Get notified when workflows fail or get cancelled
@@ -38,6 +42,14 @@ The extension will poll GitHub every 60 seconds and notify you of any failures.
 - A GitHub repository with GitHub Actions workflows
 - GitHub authentication (the extension will prompt you to sign in)
 
+## Permissions
+
+This extension requests the `repo` scope when you sign in to GitHub. This permission is required to:
+- Read workflow run status and job details
+- Access workflow information for private repositories
+
+The extension only reads data and does not make any changes to your repositories.
+
 ## Extension Commands
 
 - `Workflow Heartbeat: Select Branch and Workflow to Monitor` - Set up monitoring
@@ -52,6 +64,19 @@ The extension will poll GitHub every 60 seconds and notify you of any failures.
 - The "current step" feature requires the workflow to have a long-running step to be visible (fast jobs complete before you can see the current step)
 
 ## Release Notes
+
+### 1.1.0
+
+New features:
+- GitHub account display in Configuration panel with sign in/sign out options
+- Filter button to hide passed runs in Recent Runs view
+- "Show More Runs" button to load additional workflow runs
+- Option to filter out specific users from Recent Runs view
+- Toggle button to show/hide status bar indicator
+- Click on status bar opens the workflow run on GitHub
+
+Fixes:
+- Jobs with failing sub-jobs now correctly marked as failed
 
 ### 1.0.0
 
