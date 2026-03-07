@@ -18,13 +18,45 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 		return element;
 	}
 
-	getChildren(element?: ConfigTreeItem): Thenable<ConfigTreeItem[]> {
+	async getChildren(element?: ConfigTreeItem): Promise<ConfigTreeItem[]> {
 		if (element) {
-			return Promise.resolve([]);
+			return [];
 		}
 
 		const state = this.getMonitoringState();
 		const items: ConfigTreeItem[] = [];
+
+		// GitHub account info
+		const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: false, silent: true });
+		if (session) {
+			const accountItem = new ConfigTreeItem(
+				'Account',
+				session.account.label,
+				vscode.TreeItemCollapsibleState.None,
+				'github'
+			);
+			accountItem.command = {
+				command: 'woa.logout',
+				title: 'Sign Out'
+			};
+			accountItem.tooltip = 'Click to sign out';
+			accountItem.contextValue = 'account';
+			items.push(accountItem);
+		} else {
+			const signInItem = new ConfigTreeItem(
+				'Account',
+				'Not signed in',
+				vscode.TreeItemCollapsibleState.None,
+				'github'
+			);
+			signInItem.command = {
+				command: 'woa.signIn',
+				title: 'Sign In'
+			};
+			signInItem.tooltip = 'Click to sign in to GitHub';
+			signInItem.contextValue = 'account';
+			items.push(signInItem);
+		}
 
 		// Branch selector
 		const branchItem = new ConfigTreeItem(
@@ -142,7 +174,7 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 			items.push(stopItem);
 		}
 
-		return Promise.resolve(items);
+		return items;
 	}
 
 	private getStatusLabel(status: string | undefined): string {

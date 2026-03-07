@@ -120,6 +120,16 @@
         "command": "woa.toggleHidePassedRuns",
         "title": "Workflow Heartbeat: Hide Passed Runs",
         "icon": "$(filter)"
+      },
+      {
+        "command": "woa.signIn",
+        "title": "Workflow Heartbeat: Sign In to GitHub",
+        "icon": "$(sign-in)"
+      },
+      {
+        "command": "woa.logout",
+        "title": "Workflow Heartbeat: Sign Out of GitHub",
+        "icon": "$(sign-out)"
       }
     ],
     "menus": {

@@ -116,8 +116,27 @@ export function activate(context: vscode.ExtensionContext) {
 	const toggleHidePassedRunsCmd = vscode.commands.registerCommand('woa.toggleHidePassedRuns', () => {
 		runsViewProvider.toggleHidePassedRuns();
 	});
+	const signInCmd = vscode.commands.registerCommand('woa.signIn', async () => {
+		await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
+		configViewProvider.refresh();
+	});
+	const logoutCmd = vscode.commands.registerCommand('woa.logout', async () => {
+		const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: false, silent: true });
+		if (session) {
+			const confirm = await vscode.window.showWarningMessage(
+				`Sign out of GitHub account "${session.account.label}"?`,
+				{ modal: true },
+				'Sign Out'
+			);
+			if (confirm === 'Sign Out') {
+				// VS Code manages GitHub sessions - direct user to account management
+				vscode.commands.executeCommand('workbench.action.accounts.signOutOfAccount', session.account.id);
+				configViewProvider.refresh();
+			}
+		}
+	});
 
-	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd, toggleHidePassedRunsCmd);
+	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd, toggleHidePassedRunsCmd, signInCmd, logoutCmd);
 
 	// Listen for configuration changes
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
@@ -584,7 +603,7 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 			repo: state.repo,
 			workflow_id: state.workflowId,
 			branch: state.branch,
-			per_page: 100
+			per_page: 30
 		});
 
 		// Update runs view - filter out specified users
@@ -782,49 +801,16 @@ async function selectFilterUsers(context: vscode.ExtensionContext): Promise<void
 	}
 
 	try {
-		// Get octokit instance
-		const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: false });
-		if (!session) {
-			vscode.window.showWarningMessage('GitHub authentication required.');
-			return;
+		// Use cached actors from runsViewProvider instead of making API call
+		const cachedActors = runsViewProvider.getActors();
+		const actors = new Set<string>(cachedActors);
+
+		// Also include any currently filtered users so they remain selectable
+		if (currentState.filterOutUsers) {
+			for (const user of currentState.filterOutUsers) {
+				actors.add(user);
+			}
 		}
-		const oktokitInstance = await getOctokit(session.accessToken);
-
-		// Fetch workflow runs from the last 30 days with progress indicator
-		const actors = await vscode.window.withProgress({
-			location: vscode.ProgressLocation.Notification,
-			title: 'Loading users from workflow runs...',
-			cancellable: false
-		}, async () => {
-			const oneDayAgo = new Date();
-			oneDayAgo.setHours(oneDayAgo.getHours() - 24);
-			
-			const { data: runsData } = await oktokitInstance.rest.actions.listWorkflowRuns({
-				owner: currentState!.owner,
-				repo: currentState!.repo,
-				workflow_id: currentState!.workflowId,
-				created: `>=${oneDayAgo.toISOString()}`,
-				per_page: 100
-			});
-
-			// Extract all unique actors
-			const actorSet = new Set<string>();
-			for (const run of runsData.workflow_runs) {
-				const actor = run.actor?.login;
-				if (actor) {
-					actorSet.add(actor);
-				}
-			}
-
-			// Also include any currently filtered users so they remain selectable
-			if (currentState!.filterOutUsers) {
-				for (const user of currentState!.filterOutUsers) {
-					actorSet.add(user);
-				}
-			}
-
-			return actorSet;
-		});
 
 		if (actors.size === 0) {
 			// Allow manual entry if no actors found
