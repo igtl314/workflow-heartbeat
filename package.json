@@ -2,7 +2,7 @@
   "name": "workflow-heartbeat",
   "displayName": "Workflow Heartbeat",
   "description": "Monitor GitHub Actions workflows and get notified when they fail",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "igtl314",
   "icon": "resources/icon-marketplace.png",
   "license": "MIT",
