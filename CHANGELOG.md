@@ -4,6 +4,25 @@ All notable changes to the "Workflow Heartbeat" extension will be documented in 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.2.0] - 2026-03-07
+
+### Added
+- **Multi-workflow monitoring**: Subscribe to multiple workflows on the same branch
+- **Dual status bar**: Primary workflow gets dedicated status bar, secondary shows aggregate pass/fail for other workflows
+- **Set Primary Workflow**: Choose which workflow appears in the main status bar (via command palette or inline star button)
+- **Add/Remove Workflows**: Easily add or remove workflows from the activity bar
+- Primary workflow indicator (★) in the workflows list
+
+### Changed
+- Repository info now appears at the top of the Configuration panel
+- Removed redundant Status field from Configuration panel
+- Account click now opens VS Code Accounts menu for proper sign-out
+
+### Fixed
+- First workflow now loads immediately when added (was waiting for second workflow)
+- Failed workflow notifications no longer block UI updates
+- Removing head workflow now promotes another workflow to primary
+
 ## [1.1.0] - 2026-03-06
 
 ### Added
