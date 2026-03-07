@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
-import type { IGitExtension, IMonitoringState, TOctokit, IWorkflowQuickPickItem, IWorkflowRun, IWorkflowJob } from './types';
+import type { IGitExtension, IMonitoringState, ILegacyMonitoringState, IWorkflowSubscription, TOctokit, IWorkflowQuickPickItem, IWorkflowRun, IWorkflowJob } from './types';
 import { getOctokit, getStatusIcon, getGitHubInfo } from './utils';
 import { ConfigViewProvider } from './configView';
 import { RunsViewProvider } from './runsView';
 
 // Global state
 let statusBarItem: vscode.StatusBarItem;
+let secondaryStatusBarItem: vscode.StatusBarItem; // For other workflows
 let pollingInterval: ReturnType<typeof setInterval> | undefined;
 let octokit: TOctokit | undefined;
 let configViewProvider: ConfigViewProvider;
@@ -20,8 +21,33 @@ const POLLING_INTERVAL_MS = 60_000; // Poll every 60 seconds
 export function activate(context: vscode.ExtensionContext) {
 	console.log('Workflow Heartbeat is now active!');
 
-	// Restore previous monitoring state if any
-	currentState = context.workspaceState.get<IMonitoringState>('monitoringState');
+	// Restore previous monitoring state if any, with migration for legacy format
+	const savedState = context.workspaceState.get<IMonitoringState | ILegacyMonitoringState>('monitoringState');
+	if (savedState) {
+		// Check if it's legacy format (has workflowId instead of workflows array)
+		if ('workflowId' in savedState && !('workflows' in savedState)) {
+			// Migrate legacy state to new format
+			const legacyState = savedState as ILegacyMonitoringState;
+			currentState = {
+				branch: legacyState.branch,
+				owner: legacyState.owner,
+				repo: legacyState.repo,
+				workflows: legacyState.workflowId ? [{
+					workflowId: legacyState.workflowId,
+					workflowName: legacyState.workflowName,
+					lastRunId: legacyState.lastRunId,
+					lastStatus: legacyState.lastStatus
+				}] : [],
+				notifyForUsers: legacyState.notifyForUsers,
+				filterOutUsers: legacyState.filterOutUsers
+			};
+			// Save migrated state
+			context.workspaceState.update('monitoringState', currentState);
+			console.log('Migrated legacy monitoring state to new format');
+		} else {
+			currentState = savedState as IMonitoringState;
+		}
+	}
 
 	// Create view providers for activity bar
 	configViewProvider = new ConfigViewProvider(context, () => currentState);
@@ -92,6 +118,11 @@ export function activate(context: vscode.ExtensionContext) {
 	statusBarItem.tooltip = 'Click to select a workflow to monitor';
 	context.subscriptions.push(statusBarItem);
 
+	// Create secondary status bar item for other workflows
+	secondaryStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
+	secondaryStatusBarItem.command = 'woa.openWorkflowPage';
+	context.subscriptions.push(secondaryStatusBarItem);
+
 	// Register commands
 	const selectWorkflowCmd = vscode.commands.registerCommand('woa.selectWorkflow', () => selectWorkflow(context));
 	const selectBranchCmd = vscode.commands.registerCommand('woa.selectBranch', () => selectBranch(context));
@@ -104,9 +135,42 @@ export function activate(context: vscode.ExtensionContext) {
 	const openRunCmd = vscode.commands.registerCommand('woa.openRun', (url: string) => {
 		vscode.env.openExternal(vscode.Uri.parse(url));
 	});
-	const openWorkflowPageCmd = vscode.commands.registerCommand('woa.openWorkflowPage', () => {
-		if (currentState && currentState.lastRunId) {
-			const url = `https://github.com/${currentState.owner}/${currentState.repo}/actions/runs/${currentState.lastRunId}`;
+	const openWorkflowPageCmd = vscode.commands.registerCommand('woa.openWorkflowPage', async () => {
+		if (!currentState || currentState.workflows.length === 0) {
+			return;
+		}
+		
+		// If single workflow, open directly
+		if (currentState.workflows.length === 1) {
+			const workflow = currentState.workflows[0];
+			if (workflow.lastRunId) {
+				const url = `https://github.com/${currentState.owner}/${currentState.repo}/actions/runs/${workflow.lastRunId}`;
+				vscode.env.openExternal(vscode.Uri.parse(url));
+			}
+			return;
+		}
+		
+		// Multiple workflows - show quick pick
+		const items = currentState.workflows
+			.filter(w => w.lastRunId)
+			.map(w => ({
+				label: w.workflowName,
+				description: w.lastStatus || 'unknown',
+				workflowId: w.workflowId,
+				lastRunId: w.lastRunId
+			}));
+		
+		if (items.length === 0) {
+			return;
+		}
+		
+		const selected = await vscode.window.showQuickPick(items, {
+			placeHolder: 'Select a workflow to view on GitHub',
+			title: 'Open Workflow on GitHub'
+		});
+		
+		if (selected && selected.lastRunId) {
+			const url = `https://github.com/${currentState.owner}/${currentState.repo}/actions/runs/${selected.lastRunId}`;
 			vscode.env.openExternal(vscode.Uri.parse(url));
 		}
 	});
@@ -124,19 +188,137 @@ export function activate(context: vscode.ExtensionContext) {
 		const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: false, silent: true });
 		if (session) {
 			const confirm = await vscode.window.showWarningMessage(
-				`Sign out of GitHub account "${session.account.label}"?`,
-				{ modal: true },
-				'Sign Out'
+				`To sign out of GitHub account "${session.account.label}", use the Accounts menu in the bottom-left corner of VS Code.`,
+				'Open Accounts Menu',
+				'Cancel'
 			);
-			if (confirm === 'Sign Out') {
-				// VS Code manages GitHub sessions - direct user to account management
-				vscode.commands.executeCommand('workbench.action.accounts.signOutOfAccount', session.account.id);
-				configViewProvider.refresh();
+			if (confirm === 'Open Accounts Menu') {
+				// Open the accounts menu where user can manage sign-out
+				vscode.commands.executeCommand('workbench.action.openAccountsMenu');
 			}
 		}
 	});
+	
+	// Add workflow command - alias for selectWorkflowOnly for clearer naming
+	const addWorkflowCmd = vscode.commands.registerCommand('woa.addWorkflow', () => selectWorkflowOnly(context));
+	
+	// Remove workflow command
+	const removeWorkflowCmd = vscode.commands.registerCommand('woa.removeWorkflow', async (arg?: number | { workflowId?: number }) => {
+		if (!currentState || currentState.workflows.length === 0) {
+			return;
+		}
+		
+		// Handle both direct workflowId and TreeItem with workflowId property
+		let targetWorkflowId: number | undefined;
+		if (typeof arg === 'number') {
+			targetWorkflowId = arg;
+		} else if (arg && typeof arg === 'object' && 'workflowId' in arg) {
+			targetWorkflowId = arg.workflowId;
+		}
+		
+		// If no workflowId provided, show quick pick
+		if (targetWorkflowId === undefined) {
+			const items = currentState.workflows.map(w => ({
+				label: w.workflowName,
+				description: w.lastStatus || 'unknown',
+				workflowId: w.workflowId
+			}));
+			
+			const selected = await vscode.window.showQuickPick(items, {
+				placeHolder: 'Select a workflow to remove',
+				title: 'Remove Workflow from Monitoring'
+			});
+			
+			if (!selected) {
+				return;
+			}
+			
+			targetWorkflowId = selected.workflowId;
+		}
+		
+		// Remove the workflow
+		const workflowIndex = currentState.workflows.findIndex(w => w.workflowId === targetWorkflowId);
+		if (workflowIndex !== -1) {
+			const removed = currentState.workflows.splice(workflowIndex, 1)[0];
+			
+			// If we removed the head workflow, promote another one
+			if (removed.isHead && currentState.workflows.length > 0) {
+				currentState.workflows[0].isHead = true;
+			}
+			
+			if (currentState.workflows.length === 0) {
+				// No more workflows - stop monitoring
+				await stopMonitoring(context);
+				vscode.window.showInformationMessage(`Removed "${removed.workflowName}" - no more workflows being monitored`);
+			} else {
+				// Save state and refresh
+				await context.workspaceState.update('monitoringState', currentState);
+				updateStatusBar(currentState);
+				configViewProvider.refresh();
+				// Refresh runs to remove the deleted workflow's runs
+				await checkWorkflowStatus(context, currentState);
+				vscode.window.showInformationMessage(`Removed "${removed.workflowName}" from monitoring`);
+			}
+		}
+	});
+	
+	// Set head workflow command
+	const setHeadWorkflowCmd = vscode.commands.registerCommand('woa.setHeadWorkflow', async (arg?: number | { workflowId?: number }) => {
+		if (!currentState || currentState.workflows.length === 0) {
+			vscode.window.showWarningMessage('No workflows configured.');
+			return;
+		}
+		
+		if (currentState.workflows.length === 1) {
+			vscode.window.showInformationMessage('Only one workflow is configured.');
+			return;
+		}
+		
+		// Handle both direct workflowId and TreeItem with workflowId property
+		let targetWorkflowId: number | undefined;
+		if (typeof arg === 'number') {
+			targetWorkflowId = arg;
+		} else if (arg && typeof arg === 'object' && 'workflowId' in arg) {
+			targetWorkflowId = arg.workflowId;
+		}
+		
+		// If no workflowId provided, show quick pick
+		if (targetWorkflowId === undefined) {
+			const items = currentState.workflows.map(w => ({
+				label: w.workflowName,
+				description: w.isHead ? '$(star-full) Primary' : (w.lastStatus || 'unknown'),
+				workflowId: w.workflowId
+			}));
+			
+			const selected = await vscode.window.showQuickPick(items, {
+				placeHolder: 'Select workflow to set as primary',
+				title: 'Set Primary Workflow for Status Bar'
+			});
+			
+			if (!selected) {
+				return;
+			}
+			
+			targetWorkflowId = selected.workflowId;
+		}
+		
+		// Update head status
+		for (const workflow of currentState.workflows) {
+			workflow.isHead = workflow.workflowId === targetWorkflowId;
+		}
+		
+		// Save state and refresh UI
+		await context.workspaceState.update('monitoringState', currentState);
+		updateStatusBar(currentState);
+		configViewProvider.refresh();
+		
+		const headWorkflow = currentState.workflows.find(w => w.isHead);
+		if (headWorkflow) {
+			vscode.window.showInformationMessage(`"${headWorkflow.workflowName}" is now the primary workflow`);
+		}
+	});
 
-	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd, toggleHidePassedRunsCmd, signInCmd, logoutCmd);
+	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd, toggleHidePassedRunsCmd, signInCmd, logoutCmd, addWorkflowCmd, removeWorkflowCmd, setHeadWorkflowCmd);
 
 	// Listen for configuration changes
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
@@ -185,38 +367,91 @@ async function toggleStatusBar(): Promise<void> {
 	await config.update('showStatusBar', !currentValue, vscode.ConfigurationTarget.Global);
 }
 
+// Calculate aggregate status from all workflows (worst status wins)
+function getAggregateStatus(workflows: IWorkflowSubscription[]): string | undefined {
+	if (workflows.length === 0) {
+		return undefined;
+	}
+	
+	const statusPriority: Record<string, number> = {
+		'failure': 0,
+		'cancelled': 1,
+		'in_progress_failing': 2,
+		'in_progress': 3,
+		'queued': 4,
+		'pending': 5,
+		'success': 6,
+		'skipped': 7
+	};
+	
+	let worstStatus: string | undefined;
+	let worstPriority = 999;
+	
+	for (const workflow of workflows) {
+		const status = workflow.lastStatus;
+		if (status) {
+			const priority = statusPriority[status] ?? 999;
+			if (priority < worstPriority) {
+				worstPriority = priority;
+				worstStatus = status;
+			}
+		}
+	}
+	
+	return worstStatus;
+}
+
 function updateStatusBar(state: IMonitoringState | undefined) {
 	const config = vscode.workspace.getConfiguration('woa');
 	const showStatusBar = config.get<boolean>('showStatusBar', true);
 
 	if (!showStatusBar) {
 		statusBarItem.hide();
+		secondaryStatusBarItem.hide();
 		return;
 	}
 
-	if (!state) {
+	if (!state || state.workflows.length === 0) {
 		statusBarItem.text = '$(eye) Monitor Workflow';
 		statusBarItem.command = 'woa.selectWorkflow';
 		statusBarItem.tooltip = 'Click to select a workflow to monitor';
 		statusBarItem.backgroundColor = undefined;
 		statusBarItem.color = undefined;
 		statusBarItem.show();
+		secondaryStatusBarItem.hide();
 		return;
 	}
 
-	const statusIcon = getStatusIcon(state.lastStatus);
-	statusBarItem.text = `${statusIcon} ${state.workflowName} (${state.branch})`;
+	// Find head workflow and other workflows
+	const headWorkflow = state.workflows.find(w => w.isHead) || state.workflows[0];
+	const otherWorkflows = state.workflows.filter(w => w !== headWorkflow);
+
+	// Primary status bar - head workflow
+	const headStatus = headWorkflow.lastStatus;
+	const headIcon = getStatusIcon(headStatus);
+	statusBarItem.text = `${headIcon} ${headWorkflow.workflowName}`;
 	statusBarItem.command = 'woa.openWorkflowPage';
-	statusBarItem.tooltip = 'Click to open workflow on GitHub';
-
-	// Set background color for error and pending states
-	const bgColor = getStatusBarBackgroundColor(state.lastStatus);
-	statusBarItem.backgroundColor = bgColor ? new vscode.ThemeColor(bgColor) : undefined;
-
-	// Set text color for success state
-	statusBarItem.color = getStatusBarTextColor(state.lastStatus);
-
+	statusBarItem.tooltip = `${headWorkflow.workflowName} on ${state.branch}`;
+	const headBgColor = getStatusBarBackgroundColor(headStatus);
+	statusBarItem.backgroundColor = headBgColor ? new vscode.ThemeColor(headBgColor) : undefined;
+	statusBarItem.color = getStatusBarTextColor(headStatus);
 	statusBarItem.show();
+
+	// Secondary status bar - other workflows (aggregate pass/fail)
+	if (otherWorkflows.length > 0) {
+		const otherStatus = getAggregateStatus(otherWorkflows);
+		const hasFailed = otherStatus === 'failure' || otherStatus === 'cancelled' || otherStatus === 'in_progress_failing';
+		const otherIcon = hasFailed ? '$(x)' : '$(check)';
+		secondaryStatusBarItem.text = `${otherIcon} +${otherWorkflows.length}`;
+		secondaryStatusBarItem.tooltip = `${otherWorkflows.length} other workflow${otherWorkflows.length > 1 ? 's' : ''}: ${hasFailed ? 'failing' : 'passing'}`;
+		secondaryStatusBarItem.backgroundColor = hasFailed 
+			? new vscode.ThemeColor('statusBarItem.errorBackground') 
+			: undefined;
+		secondaryStatusBarItem.color = hasFailed ? undefined : '#69db7c';
+		secondaryStatusBarItem.show();
+	} else {
+		secondaryStatusBarItem.hide();
+	}
 }
 
 async function selectWorkflow(context: vscode.ExtensionContext): Promise<void> {
@@ -311,13 +546,16 @@ async function selectWorkflow(context: vscode.ExtensionContext): Promise<void> {
 			branchName = branchName.split('/').slice(1).join('/');
 		}
 
-		// Create monitoring state
+		// Create monitoring state with new multi-workflow format
 		const state: IMonitoringState = {
 			branch: branchName,
-			workflowId: selectedWorkflow.workflowId,
-			workflowName: selectedWorkflow.label,
 			owner: githubInfo.owner,
-			repo: githubInfo.repo
+			repo: githubInfo.repo,
+			workflows: [{
+				workflowId: selectedWorkflow.workflowId,
+				workflowName: selectedWorkflow.label,
+				isHead: true
+			}]
 		};
 
 		// Start monitoring
@@ -394,17 +632,19 @@ async function selectBranch(context: vscode.ExtensionContext): Promise<void> {
 			currentState.branch = branchName;
 			currentState.owner = githubInfo.owner;
 			currentState.repo = githubInfo.repo;
-			currentState.lastRunId = undefined;
-			currentState.lastStatus = undefined;
+			// Reset status for all workflows when branch changes
+			for (const workflow of currentState.workflows) {
+				workflow.lastRunId = undefined;
+				workflow.lastStatus = undefined;
+			}
 			await startMonitoring(context, currentState);
 		} else {
 			// No workflow selected yet, create partial state
 			const state: IMonitoringState = {
 				branch: branchName,
-				workflowId: 0,
-				workflowName: '',
 				owner: githubInfo.owner,
-				repo: githubInfo.repo
+				repo: githubInfo.repo,
+				workflows: []
 			};
 			currentState = state;
 			await context.workspaceState.update('monitoringState', state);
@@ -461,31 +701,47 @@ async function selectWorkflowOnly(context: vscode.ExtensionContext): Promise<voi
 			return;
 		}
 
-		// Let user select a workflow
-		const workflowItems: IWorkflowQuickPickItem[] = workflowsData.workflows.map((w: { name: string; path: string; id: number }) => ({
+		// Let user select a workflow - filter out already subscribed workflows
+		const subscribedIds = new Set(currentState?.workflows.map(w => w.workflowId) || []);
+		const availableWorkflows = workflowsData.workflows.filter((w: { id: number }) => !subscribedIds.has(w.id));
+		
+		if (availableWorkflows.length === 0) {
+			vscode.window.showInformationMessage('All workflows are already being monitored.');
+			return;
+		}
+		
+		const workflowItems: IWorkflowQuickPickItem[] = availableWorkflows.map((w: { name: string; path: string; id: number }) => ({
 			label: w.name,
 			description: w.path,
 			workflowId: w.id
 		}));
 
 		const selectedWorkflow = await vscode.window.showQuickPick(workflowItems, {
-			placeHolder: 'Select a workflow to monitor',
-			title: 'Workflow Heartbeat: Select Workflow'
+			placeHolder: 'Select a workflow to add',
+			title: 'Workflow Heartbeat: Add Workflow'
 		});
 
 		if (!selectedWorkflow) {
 			return; // User cancelled
 		}
 
-		// Update or create state with new workflow
+		// Add workflow to state
 		if (currentState && currentState.branch) {
-			currentState.workflowId = selectedWorkflow.workflowId;
-			currentState.workflowName = selectedWorkflow.label;
+			// Ensure workflows array exists
+			if (!currentState.workflows) {
+				currentState.workflows = [];
+			}
+			// Mark as head if it's the first workflow or no head exists
+			const isFirstWorkflow = currentState.workflows.length === 0 || !currentState.workflows.some(w => w.isHead);
+			currentState.workflows.push({
+				workflowId: selectedWorkflow.workflowId,
+				workflowName: selectedWorkflow.label,
+				isHead: isFirstWorkflow
+			});
 			currentState.owner = cachedGitHubInfo.owner;
 			currentState.repo = cachedGitHubInfo.repo;
-			currentState.lastRunId = undefined;
-			currentState.lastStatus = undefined;
 			await startMonitoring(context, currentState);
+			vscode.window.showInformationMessage(`Added "${selectedWorkflow.label}" to monitoring`);
 		} else {
 			// No branch selected yet, prompt to select branch first
 			vscode.window.showWarningMessage('Please select a branch first.');
@@ -499,13 +755,14 @@ async function selectWorkflowOnly(context: vscode.ExtensionContext): Promise<voi
 
 async function startMonitoring(context: vscode.ExtensionContext, state: IMonitoringState): Promise<void> {
 	// Don't start monitoring if no workflow is selected
-	if (!state.workflowId || !state.workflowName) {
+	if (!state.workflows || state.workflows.length === 0) {
 		return;
 	}
 
 	// Stop any existing monitoring
 	if (pollingInterval) {
 		clearInterval(pollingInterval);
+		pollingInterval = undefined;
 	}
 
 	// Reset the runs view display count when starting fresh
@@ -518,6 +775,7 @@ async function startMonitoring(context: vscode.ExtensionContext, state: IMonitor
 	// Update UI
 	updateStatusBar(state);
 	configViewProvider.refresh();
+	runsViewProvider.refresh(); // Refresh runs view to show loading state
 
 	// Ensure we have an authenticated Octokit instance
 	if (!octokit) {
@@ -531,13 +789,16 @@ async function startMonitoring(context: vscode.ExtensionContext, state: IMonitor
 		}
 	}
 
-	// Do an initial check
-	await checkWorkflowStatus(context, state);
-
-	// Start polling
+	// Start polling first (so it's always set up)
 	pollingInterval = setInterval(() => {
 		checkWorkflowStatus(context, state);
 	}, POLLING_INTERVAL_MS);
+
+	// Then do an initial check
+	await checkWorkflowStatus(context, state);
+
+	// Final refresh to ensure runs view is updated
+	runsViewProvider.refresh();
 }
 
 /**
@@ -579,7 +840,7 @@ async function checkRunForFailedSteps(state: IMonitoringState, runId: number): P
 
 async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMonitoringState): Promise<void> {
 	// Don't check if no workflow is selected
-	if (!state.workflowId) {
+	if (!state.workflows || state.workflows.length === 0) {
 		return;
 	}
 
@@ -597,103 +858,118 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 	}
 
 	try {
-		// Fetch recent runs for the runs view (fetch more to allow "show more" feature)
-		const { data: runsData } = await octokit.rest.actions.listWorkflowRuns({
-			owner: state.owner,
-			repo: state.repo,
-			workflow_id: state.workflowId,
-			branch: state.branch,
-			per_page: 30
-		});
-
-		// Update runs view - filter out specified users
 		const filterOutUsers = (state.filterOutUsers || []).map(u => u.toLowerCase());
-		const filteredRuns = runsData.workflow_runs
-			.filter((run: any) => {
+		
+		// Fetch runs for all workflows in parallel
+		const workflowRunsPromises = state.workflows.map(async (workflow) => {
+			const { data: runsData } = await octokit.rest.actions.listWorkflowRuns({
+				owner: state.owner,
+				repo: state.repo,
+				workflow_id: workflow.workflowId,
+				branch: state.branch,
+				per_page: 30
+			});
+			return { workflow, runsData };
+		});
+		
+		const workflowRunsResults = await Promise.all(workflowRunsPromises);
+		
+		// Process runs for each workflow
+		const allRuns: IWorkflowRun[] = [];
+		
+		for (const { workflow, runsData } of workflowRunsResults) {
+			const filteredRuns = runsData.workflow_runs.filter((run: any) => {
 				const actor = (run.actor?.login || '').toLowerCase();
 				return !filterOutUsers.includes(actor);
 			});
+			
+			// Build runs array and check for failed steps in in-progress runs
+			for (const run of filteredRuns) {
+				const baseRun: IWorkflowRun = {
+					id: run.id,
+					name: run.name,
+					status: run.status,
+					conclusion: run.conclusion,
+					html_url: run.html_url,
+					created_at: run.created_at,
+					head_sha: run.head_sha,
+					run_number: run.run_number,
+					actor: run.actor?.login || 'unknown',
+					workflowId: workflow.workflowId,
+					workflowName: workflow.workflowName
+				};
+				
+				// Check for failed steps in in-progress runs
+				if (!run.conclusion && (run.status === 'in_progress' || run.status === 'queued' || run.status === 'pending')) {
+					const hasFailure = await checkRunForFailedSteps(state, run.id);
+					if (hasFailure) {
+						baseRun.effectiveStatus = 'in_progress_failing';
+					}
+				}
+				
+				allRuns.push(baseRun);
+			}
+			
+			// Update workflow status based on latest run
+			if (runsData.workflow_runs.length > 0) {
+				const latestRun = runsData.workflow_runs[0];
+				const latestRunFromAllRuns = allRuns.find(r => r.id === latestRun.id);
+				const previousStatus = workflow.lastStatus;
+				const previousRunId = workflow.lastRunId;
+				
+				// Update workflow status
+				workflow.lastRunId = latestRun.id;
+				if (latestRunFromAllRuns) {
+					workflow.lastStatus = latestRunFromAllRuns.effectiveStatus || (latestRun.conclusion ?? latestRun.status ?? undefined);
+				} else {
+					// Latest run was filtered out, need to check for failed steps separately
+					let effectiveStatus = latestRun.conclusion ?? latestRun.status ?? undefined;
+					if (!latestRun.conclusion && (latestRun.status === 'in_progress' || latestRun.status === 'queued' || latestRun.status === 'pending')) {
+						const hasFailure = await checkRunForFailedSteps(state, latestRun.id);
+						if (hasFailure) {
+							effectiveStatus = 'in_progress_failing';
+						}
+					}
+					workflow.lastStatus = effectiveStatus;
+				}
+				
+				// Check if we should notify based on user filter
+				const actor = latestRun.actor?.login || 'unknown';
+				const shouldNotify = !state.notifyForUsers || state.notifyForUsers.length === 0 || state.notifyForUsers.includes(actor);
+
+				// Show notification if the workflow failed/cancelled and it's a new run (respecting user filter)
+				if ((latestRun.conclusion === 'failure' || latestRun.conclusion === 'cancelled') && latestRun.id !== previousRunId && shouldNotify) {
+					const statusText = latestRun.conclusion === 'failure' ? 'failed' : 'was cancelled';
+					// Don't await - let notification run in background so UI updates immediately
+					vscode.window.showErrorMessage(
+						`Workflow "${workflow.workflowName}" ${statusText} on branch "${state.branch}" (by ${actor})`,
+						'View on GitHub',
+						'Dismiss'
+					).then(action => {
+						if (action === 'View on GitHub') {
+							vscode.env.openExternal(vscode.Uri.parse(latestRun.html_url));
+						}
+					});
+				} else if (latestRun.conclusion === 'success' && previousStatus === 'failure' && latestRun.id !== previousRunId) {
+					// Notify when a previously failing workflow succeeds
+					vscode.window.showInformationMessage(
+						`Workflow "${workflow.workflowName}" is now passing on branch "${state.branch}"`
+					);
+				}
+			}
+		}
 		
-		// Build runs array and check for failed steps in in-progress runs
-		const runs: IWorkflowRun[] = [];
-		for (const run of filteredRuns) {
-			const baseRun: IWorkflowRun = {
-				id: run.id,
-				name: run.name,
-				status: run.status,
-				conclusion: run.conclusion,
-				html_url: run.html_url,
-				created_at: run.created_at,
-				head_sha: run.head_sha,
-				run_number: run.run_number,
-				actor: run.actor?.login || 'unknown'
-			};
-			
-			// Check for failed steps in in-progress runs
-			if (!run.conclusion && (run.status === 'in_progress' || run.status === 'queued' || run.status === 'pending')) {
-				const hasFailure = await checkRunForFailedSteps(state, run.id);
-				if (hasFailure) {
-					baseRun.effectiveStatus = 'in_progress_failing';
-				}
-			}
-			
-			runs.push(baseRun);
-		}
-		runsViewProvider.setRuns(runs, filteredRuns.length);
-
-		if (runsData.workflow_runs.length === 0) {
-			return; // No runs yet
-		}
-
-		const latestRun = runsData.workflow_runs[0];
-		const latestRunData = runs.find(r => r.id === latestRun.id);
-		const previousStatus = state.lastStatus;
-		const previousRunId = state.lastRunId;
-
-		// Update state - use already calculated effectiveStatus if available, otherwise calculate
-		state.lastRunId = latestRun.id;
-		if (latestRunData) {
-			state.lastStatus = latestRunData.effectiveStatus || (latestRun.conclusion ?? latestRun.status ?? undefined);
-		} else {
-			// Latest run was filtered out, need to check for failed steps separately
-			let effectiveStatus = latestRun.conclusion ?? latestRun.status ?? undefined;
-			if (!latestRun.conclusion && (latestRun.status === 'in_progress' || latestRun.status === 'queued' || latestRun.status === 'pending')) {
-				const hasFailure = await checkRunForFailedSteps(state, latestRun.id);
-				if (hasFailure) {
-					effectiveStatus = 'in_progress_failing';
-				}
-			}
-			state.lastStatus = effectiveStatus;
-		}
+		// Update runs view with all runs sorted by date
+		allRuns.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+		runsViewProvider.setRuns(allRuns, allRuns.length);
+		
+		// Save state
 		currentState = state;
 		await context.workspaceState.update('monitoringState', state);
 
 		// Update UI
 		updateStatusBar(state);
 		configViewProvider.refresh();
-
-		// Check if we should notify based on user filter
-		const actor = latestRun.actor?.login || 'unknown';
-		const shouldNotify = !state.notifyForUsers || state.notifyForUsers.length === 0 || state.notifyForUsers.includes(actor);
-
-		// Show notification if the workflow failed/cancelled and it's a new run (respecting user filter)
-		if ((latestRun.conclusion === 'failure' || latestRun.conclusion === 'cancelled') && latestRun.id !== previousRunId && shouldNotify) {
-			const statusText = latestRun.conclusion === 'failure' ? 'failed' : 'was cancelled';
-			const action = await vscode.window.showErrorMessage(
-				`Workflow "${state.workflowName}" ${statusText} on branch "${state.branch}" (by ${actor})`,
-				'View on GitHub',
-				'Dismiss'
-			);
-
-			if (action === 'View on GitHub') {
-				vscode.env.openExternal(vscode.Uri.parse(latestRun.html_url));
-			}
-		} else if (latestRun.conclusion === 'success' && previousStatus === 'failure' && latestRun.id !== previousRunId) {
-			// Notify when a previously failing workflow succeeds
-			vscode.window.showInformationMessage(
-				`Workflow "${state.workflowName}" is now passing on branch "${state.branch}"`
-			);
-		}
 
 	} catch (error) {
 		console.error('Error checking workflow status:', error);

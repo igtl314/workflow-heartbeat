@@ -130,6 +130,21 @@
         "command": "woa.logout",
         "title": "Workflow Heartbeat: Sign Out of GitHub",
         "icon": "$(sign-out)"
+      },
+      {
+        "command": "woa.addWorkflow",
+        "title": "Workflow Heartbeat: Add Another Workflow",
+        "icon": "$(add)"
+      },
+      {
+        "command": "woa.removeWorkflow",
+        "title": "Workflow Heartbeat: Remove Workflow",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "woa.setHeadWorkflow",
+        "title": "Workflow Heartbeat: Set Primary Workflow",
+        "icon": "$(star)"
       }
     ],
     "menus": {
@@ -148,6 +163,28 @@
           "command": "woa.refreshStatus",
           "when": "view == woa.runsView",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "woa.setHeadWorkflow",
+          "when": "view == woa.configView && viewItem == workflowItem",
+          "group": "inline"
+        },
+        {
+          "command": "woa.removeWorkflow",
+          "when": "view == woa.configView && viewItem == workflowItem",
+          "group": "context"
+        },
+        {
+          "command": "woa.setHeadWorkflow",
+          "when": "view == woa.configView && viewItem == workflowItemHead",
+          "group": "inline"
+        },
+        {
+          "command": "woa.removeWorkflow",
+          "when": "view == woa.configView && viewItem == workflowItemHead",
+          "group": "context"
         }
       ]
     },

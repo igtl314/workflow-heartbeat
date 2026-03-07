@@ -35,7 +35,25 @@ export interface IBranch {
 }
 
 // State interfaces
+export interface IWorkflowSubscription {
+	workflowId: number;
+	workflowName: string;
+	lastRunId?: number;
+	lastStatus?: string;
+	isHead?: boolean; // First/primary workflow gets dedicated status bar
+}
+
 export interface IMonitoringState {
+	branch: string;
+	owner: string;
+	repo: string;
+	workflows: IWorkflowSubscription[];
+	notifyForUsers?: string[]; // Only notify for failed/cancelled workflows from these users (empty = notify for all)
+	filterOutUsers?: string[]; // Filter out runs from these users in the runs view (e.g., bots)
+}
+
+// Legacy state interface for migration
+export interface ILegacyMonitoringState {
 	branch: string;
 	workflowId: number;
 	workflowName: string;
@@ -43,8 +61,8 @@ export interface IMonitoringState {
 	repo: string;
 	lastRunId?: number;
 	lastStatus?: string;
-	notifyForUsers?: string[]; // Only notify for failed/cancelled workflows from these users (empty = notify for all)
-	filterOutUsers?: string[]; // Filter out runs from these users in the runs view (e.g., bots)
+	notifyForUsers?: string[];
+	filterOutUsers?: string[];
 }
 
 // Quick pick item interfaces
@@ -66,6 +84,8 @@ export interface IWorkflowRun {
 	head_sha: string;
 	run_number: number;
 	actor: string;
+	workflowId?: number; // ID of the workflow this run belongs to
+	workflowName?: string; // Name of the workflow this run belongs to
 }
 
 // Workflow job interface

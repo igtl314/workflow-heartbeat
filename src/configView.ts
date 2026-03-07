@@ -19,7 +19,11 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 	}
 
 	async getChildren(element?: ConfigTreeItem): Promise<ConfigTreeItem[]> {
+		// Handle child items for collapsible elements
 		if (element) {
+			if (element.contextValue === 'workflows' && element.collapsibleState === vscode.TreeItemCollapsibleState.Expanded) {
+				return this.getWorkflowItems();
+			}
 			return [];
 		}
 
@@ -37,9 +41,9 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 			);
 			accountItem.command = {
 				command: 'woa.logout',
-				title: 'Sign Out'
+				title: 'Manage Account'
 			};
-			accountItem.tooltip = 'Click to sign out';
+			accountItem.tooltip = 'Click to manage GitHub account';
 			accountItem.contextValue = 'account';
 			items.push(accountItem);
 		} else {
@@ -58,6 +62,18 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 			items.push(signInItem);
 		}
 
+		// Repository info (show at top if available)
+		if (state && state.owner && state.repo) {
+			const repoItem = new ConfigTreeItem(
+				'Repository',
+				`${state.owner}/${state.repo}`,
+				vscode.TreeItemCollapsibleState.None,
+				'repo'
+			);
+			repoItem.contextValue = 'repo';
+			items.push(repoItem);
+		}
+
 		// Branch selector
 		const branchItem = new ConfigTreeItem(
 			'Branch',
@@ -72,19 +88,33 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 		branchItem.contextValue = 'branch';
 		items.push(branchItem);
 
-		// Workflow selector
-		const workflowItem = new ConfigTreeItem(
-			'Workflow',
-			state?.workflowName || 'Select a workflow...',
-			vscode.TreeItemCollapsibleState.None,
-			'workflow'
-		);
-		workflowItem.command = {
-			command: 'woa.selectWorkflowOnly',
-			title: 'Select Workflow'
-		};
-		workflowItem.contextValue = 'workflow';
-		items.push(workflowItem);
+		// Workflows section (expandable if there are workflows, otherwise show select prompt)
+		if (state && state.workflows && state.workflows.length > 0) {
+			// Show workflows as expandable section
+			const workflowsItem = new ConfigTreeItem(
+				'Workflows',
+				`${state.workflows.length} monitored`,
+				vscode.TreeItemCollapsibleState.Expanded,
+				'checklist'
+			);
+			workflowsItem.contextValue = 'workflows';
+			items.push(workflowsItem);
+		} else {
+			// No workflows yet - show select prompt
+			// Use addWorkflow if branch already selected, otherwise full selectWorkflow flow
+			const workflowItem = new ConfigTreeItem(
+				'Workflow',
+				'Select a workflow...',
+				vscode.TreeItemCollapsibleState.None,
+				'workflow'
+			);
+			workflowItem.command = {
+				command: state?.branch ? 'woa.addWorkflow' : 'woa.selectWorkflow',
+				title: 'Select Workflow'
+			};
+			workflowItem.contextValue = 'workflow';
+			items.push(workflowItem);
+		}
 
 		// Status bar toggle
 		const config = vscode.workspace.getConfiguration('woa');
@@ -103,28 +133,8 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 		statusBarItem.contextValue = 'statusBar';
 		items.push(statusBarItem);
 
-		// Status indicator (only show if monitoring)
-		if (state) {
-			const statusItem = new ConfigTreeItem(
-				'Status',
-				this.getStatusLabel(state.lastStatus),
-				vscode.TreeItemCollapsibleState.None,
-				this.getStatusIconName(state.lastStatus),
-				this.getStatusIconColor(state.lastStatus)
-			);
-			statusItem.contextValue = 'status';
-			items.push(statusItem);
-
-			// Repository info
-			const repoItem = new ConfigTreeItem(
-				'Repository',
-				`${state.owner}/${state.repo}`,
-				vscode.TreeItemCollapsibleState.None,
-				'repo'
-			);
-			repoItem.contextValue = 'repo';
-			items.push(repoItem);
-
+		// Additional items (only show if monitoring)
+		if (state && state.workflows && state.workflows.length > 0) {
 			// Notify for users filter
 			const notifyUsersLabel = state.notifyForUsers && state.notifyForUsers.length > 0
 				? state.notifyForUsers.join(', ')
@@ -175,6 +185,84 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 		}
 
 		return items;
+	}
+
+	private getWorkflowItems(): ConfigTreeItem[] {
+		const state = this.getMonitoringState();
+		if (!state || !state.workflows) {
+			return [];
+		}
+
+		const items: ConfigTreeItem[] = [];
+
+		// Show each workflow with its status
+		for (const workflow of state.workflows) {
+			const isPrimary = workflow.isHead;
+			const statusLabel = isPrimary 
+				? `★ ${this.getStatusLabel(workflow.lastStatus)}`
+				: this.getStatusLabel(workflow.lastStatus);
+			const item = new ConfigTreeItem(
+				workflow.workflowName,
+				statusLabel,
+				vscode.TreeItemCollapsibleState.None,
+				this.getStatusIconName(workflow.lastStatus),
+				this.getStatusIconColor(workflow.lastStatus)
+			);
+			item.contextValue = isPrimary ? 'workflowItemHead' : 'workflowItem';
+			item.tooltip = `${workflow.workflowName}${isPrimary ? ' (Primary)' : ''}\nStatus: ${this.getStatusLabel(workflow.lastStatus)}\nClick star to set as primary, right-click to remove`;
+			// Store workflowId for commands
+			(item as any).workflowId = workflow.workflowId;
+			items.push(item);
+		}
+
+		// Add "Add Another Workflow" button
+		const addItem = new ConfigTreeItem(
+			'Add Another Workflow',
+			'',
+			vscode.TreeItemCollapsibleState.None,
+			'add'
+		);
+		addItem.command = {
+			command: 'woa.addWorkflow',
+			title: 'Add Workflow'
+		};
+		addItem.contextValue = 'addWorkflow';
+		items.push(addItem);
+
+		return items;
+	}
+
+	private getAggregateStatus(workflows: { lastStatus?: string }[]): string | undefined {
+		if (workflows.length === 0) {
+			return undefined;
+		}
+		
+		const statusPriority: Record<string, number> = {
+			'failure': 0,
+			'cancelled': 1,
+			'in_progress_failing': 2,
+			'in_progress': 3,
+			'queued': 4,
+			'pending': 5,
+			'success': 6,
+			'skipped': 7
+		};
+		
+		let worstStatus: string | undefined;
+		let worstPriority = 999;
+		
+		for (const workflow of workflows) {
+			const status = workflow.lastStatus;
+			if (status) {
+				const priority = statusPriority[status] ?? 999;
+				if (priority < worstPriority) {
+					worstPriority = priority;
+					worstStatus = status;
+				}
+			}
+		}
+		
+		return worstStatus;
 	}
 
 	private getStatusLabel(status: string | undefined): string {

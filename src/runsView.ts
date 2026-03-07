@@ -6,14 +6,14 @@ export interface IWorkflowRunWithJobs extends IWorkflowRun {
 	jobs?: IWorkflowJob[];
 }
 
-type TreeItemType = 'run' | 'job' | 'info' | 'jobGroup' | 'showMore';
+type TreeItemType = 'run' | 'job' | 'info' | 'jobGroup' | 'showMore' | 'workflow';
 
 export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	private _onDidChangeTreeData: vscode.EventEmitter<RunsTreeItem | undefined | null | void> = new vscode.EventEmitter<RunsTreeItem | undefined | null | void>();
 	readonly onDidChangeTreeData: vscode.Event<RunsTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
 	private runs: IWorkflowRunWithJobs[] = [];
-	private jobsCache: Map<number, IWorkflowJob[]> = new Map();
+	private jobsCache: Map<string, IWorkflowJob[]> = new Map(); // Key: workflowId:runId
 	private fetchJobsCallback?: (runId: number) => Promise<IWorkflowJob[]>;
 	private displayCount: number = 10;
 	private totalAvailable: number = 0;
@@ -93,6 +93,11 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 			return this.getJobsForRun(element.runId);
 		}
 
+		// If element is a workflow section, return runs for that workflow
+		if (element && element.itemType === 'workflow' && element.workflowId) {
+			return this.getRunsForWorkflow(element.workflowId);
+		}
+
 		const state = this.getMonitoringState();
 
 		if (!state) {
@@ -117,10 +122,52 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 			return [noRunsItem];
 		}
 
+		// Check if we have multiple workflows
+		const hasMultipleWorkflows = state.workflows && state.workflows.length > 1;
+
+		if (hasMultipleWorkflows) {
+			// Show workflow sections at root level
+			return this.getWorkflowSections(state.workflows);
+		}
+
+		// Single workflow - show runs directly
+		return this.getRunItems(this.runs);
+	}
+
+	private getWorkflowSections(workflows: { workflowId: number; workflowName: string; lastStatus?: string }[]): RunsTreeItem[] {
+		return workflows.map(workflow => {
+			// Get runs for this workflow to calculate status
+			const workflowRuns = this.runs.filter(r => r.workflowId === workflow.workflowId);
+			const runCount = workflowRuns.length;
+			const status = workflow.lastStatus ?? null;
+			
+			const item = new RunsTreeItem(
+				workflow.workflowName,
+				`${runCount} run${runCount !== 1 ? 's' : ''}`,
+				vscode.TreeItemCollapsibleState.Expanded,
+				this.getStatusIconName(status),
+				'workflow',
+				this.getStatusIconColor(status),
+				undefined,
+				undefined,
+				undefined,
+				workflow.workflowId
+			);
+			
+			return item;
+		});
+	}
+
+	private getRunsForWorkflow(workflowId: number): RunsTreeItem[] {
+		const workflowRuns = this.runs.filter(r => r.workflowId === workflowId);
+		return this.getRunItems(workflowRuns);
+	}
+
+	private getRunItems(runs: IWorkflowRunWithJobs[]): RunsTreeItem[] {
 		// Filter out passed runs if the filter is enabled
-		let filteredRuns = this.runs;
+		let filteredRuns = runs;
 		if (this._hidePassedRuns) {
-			filteredRuns = this.runs.filter(run => {
+			filteredRuns = runs.filter(run => {
 				const status = run.effectiveStatus || run.conclusion || run.status;
 				return status !== 'success';
 			});
@@ -130,7 +177,7 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 			const status = run.effectiveStatus || run.conclusion || run.status;
 			const timeAgo = this.getTimeAgo(run.created_at);
 			const commitShort = run.head_sha.substring(0, 7);
-
+			
 			const item = new RunsTreeItem(
 				`#${run.run_number}`,
 				`${this.getStatusLabel(status)} • ${run.actor} • ${timeAgo}`,
@@ -155,10 +202,10 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 		});
 
 		// Add "Show More" button if there are more runs available
-		if (filteredRuns.length > this.displayCount || this.totalAvailable > filteredRuns.length) {
+		if (filteredRuns.length > this.displayCount) {
 			const showMoreItem = new RunsTreeItem(
 				'Show More Runs',
-				`${Math.min(this.displayCount, filteredRuns.length)} of ${this._hidePassedRuns ? filteredRuns.length : this.totalAvailable} shown`,
+				`${Math.min(this.displayCount, filteredRuns.length)} of ${filteredRuns.length} shown`,
 				vscode.TreeItemCollapsibleState.None,
 				'ellipsis',
 				'showMore'
@@ -176,11 +223,12 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	private async getJobsForRun(runId: number): Promise<RunsTreeItem[]> {
 		const run = this.runs.find(r => r.id === runId);
 		const isRunInProgress = run && (run.status === 'in_progress' || run.status === 'queued' || run.status === 'pending' || !run.conclusion);
+		const cacheKey = `${run?.workflowId || 0}:${runId}`;
 		
 		// Check cache first for completed runs
 		let jobs: IWorkflowJob[] | undefined;
-		if (!isRunInProgress && this.jobsCache.has(runId)) {
-			jobs = this.jobsCache.get(runId);
+		if (!isRunInProgress && this.jobsCache.has(cacheKey)) {
+			jobs = this.jobsCache.get(cacheKey);
 		} else if (run?.jobs && run.jobs.length > 0 && !isRunInProgress) {
 			jobs = run.jobs;
 		}
@@ -191,7 +239,7 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 				jobs = await this.fetchJobsCallback(runId);
 				
 				// Cache the jobs
-				this.jobsCache.set(runId, jobs);
+				this.jobsCache.set(cacheKey, jobs);
 				if (run) {
 					run.jobs = jobs;
 				}
@@ -222,7 +270,9 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	}
 
 	private getJobsInGroup(runId: number, groupName: string): RunsTreeItem[] {
-		const jobs = this.jobsCache.get(runId);
+		const run = this.runs.find(r => r.id === runId);
+		const cacheKey = `${run?.workflowId || 0}:${runId}`;
+		const jobs = this.jobsCache.get(cacheKey);
 		if (!jobs) {
 			return [];
 		}
@@ -559,7 +609,8 @@ export class RunsTreeItem extends vscode.TreeItem {
 		public readonly iconColor?: string,
 		public readonly runId?: number,
 		public readonly url?: string,
-		public readonly groupName?: string
+		public readonly groupName?: string,
+		public readonly workflowId?: number
 	) {
 		super(label, collapsibleState);
 		this.description = description;
