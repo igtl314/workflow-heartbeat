@@ -1,5 +1,15 @@
 import * as vscode from 'vscode';
 import type { IMonitoringState, IWorkflowRun, IWorkflowJob } from './types';
+import { getStatusLabel, getStatusIconName, getStatusIconColor } from './utils';
+
+// Constants
+const DEFAULT_DISPLAY_COUNT = 10;
+const DISPLAY_COUNT_INCREMENT = 10;
+const COMMIT_SHA_SHORT_LENGTH = 7;
+const SECONDS_PER_MINUTE = 60;
+const MINUTES_PER_HOUR = 60;
+const HOURS_PER_DAY = 24;
+const DAYS_PER_WEEK = 7;
 
 // Extended run interface with jobs
 export interface IWorkflowRunWithJobs extends IWorkflowRun {
@@ -15,7 +25,7 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	private runs: IWorkflowRunWithJobs[] = [];
 	private jobsCache: Map<string, IWorkflowJob[]> = new Map(); // Key: workflowId:runId
 	private fetchJobsCallback?: (runId: number) => Promise<IWorkflowJob[]>;
-	private displayCount: number = 10;
+	private displayCount: number = DEFAULT_DISPLAY_COUNT;
 	private totalAvailable: number = 0;
 	private _hidePassedRuns: boolean = false;
 	private treeView?: vscode.TreeView<RunsTreeItem>;
@@ -38,12 +48,12 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	}
 
 	showMoreRuns(): void {
-		this.displayCount += 10;
+		this.displayCount += DISPLAY_COUNT_INCREMENT;
 		this.refresh();
 	}
 
 	resetDisplayCount(): void {
-		this.displayCount = 10;
+		this.displayCount = DEFAULT_DISPLAY_COUNT;
 	}
 
 	setTreeView(treeView: vscode.TreeView<RunsTreeItem>): void {
@@ -140,20 +150,20 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 			const workflowRuns = this.runs.filter(r => r.workflowId === workflow.workflowId);
 			const runCount = workflowRuns.length;
 			const status = workflow.lastStatus ?? null;
-			
+
 			const item = new RunsTreeItem(
 				workflow.workflowName,
 				`${runCount} run${runCount !== 1 ? 's' : ''}`,
 				vscode.TreeItemCollapsibleState.Expanded,
-				this.getStatusIconName(status),
+				getStatusIconName(status),
 				'workflow',
-				this.getStatusIconColor(status),
+				getStatusIconColor(status),
 				undefined,
 				undefined,
 				undefined,
 				workflow.workflowId
 			);
-			
+
 			return item;
 		});
 	}
@@ -176,22 +186,22 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 		const items: RunsTreeItem[] = filteredRuns.slice(0, this.displayCount).map(run => {
 			const status = run.effectiveStatus || run.conclusion || run.status;
 			const timeAgo = this.getTimeAgo(run.created_at);
-			const commitShort = run.head_sha.substring(0, 7);
-			
+			const commitShort = run.head_sha.substring(0, COMMIT_SHA_SHORT_LENGTH);
+
 			const item = new RunsTreeItem(
 				`#${run.run_number}`,
-				`${this.getStatusLabel(status)} • ${run.actor} • ${timeAgo}`,
+				`${getStatusLabel(status)} • ${run.actor} • ${timeAgo}`,
 				vscode.TreeItemCollapsibleState.Collapsed,
-				this.getStatusIconName(status),
+				getStatusIconName(status),
 				'run',
-				this.getStatusIconColor(status),
+				getStatusIconColor(status),
 				run.id,
 				run.html_url
 			);
 
 			item.tooltip = new vscode.MarkdownString(
 				`**Run #${run.run_number}**\n\n` +
-				`Status: ${this.getStatusLabel(status)}\n\n` +
+				`Status: ${getStatusLabel(status)}\n\n` +
 				`Author: ${run.actor}\n\n` +
 				`Commit: \`${commitShort}\`\n\n` +
 				`Created: ${new Date(run.created_at).toLocaleString()}\n\n` +
@@ -333,9 +343,9 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 					groupName,
 					`${passedCount}/${totalCount} passed`,
 					vscode.TreeItemCollapsibleState.Collapsed,
-					this.getStatusIconName(groupStatus),
+					getStatusIconName(groupStatus),
 					'jobGroup',
-					this.getStatusIconColor(groupStatus),
+					getStatusIconColor(groupStatus),
 					runId,
 					undefined,
 					groupName
@@ -418,8 +428,8 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 			}
 
 			const description = currentStep
-				? `${this.getStatusLabel(status)} • ${currentStep}${duration ? ` • ${duration}` : ''}`
-				: `${this.getStatusLabel(status)}${duration ? ` • ${duration}` : ''}`;
+				? `${getStatusLabel(status)} • ${currentStep}${duration ? ` • ${duration}` : ''}`
+				: `${getStatusLabel(status)}${duration ? ` • ${duration}` : ''}`;
 
 			// Use variant name if in a group, otherwise full name
 			const variant = this.getJobVariant(job.name);
@@ -429,9 +439,9 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 				displayName,
 				description,
 				vscode.TreeItemCollapsibleState.None,
-				this.getStatusIconName(status),
+				getStatusIconName(status),
 				'job',
-				this.getStatusIconColor(status),
+				getStatusIconColor(status),
 				undefined,
 				job.html_url
 			);
@@ -444,7 +454,7 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 
 			// Build tooltip with step info
 			let tooltipContent = `**${job.name}**\n\n` +
-				`Status: ${this.getStatusLabel(status)}\n\n` +
+				`Status: ${getStatusLabel(status)}\n\n` +
 				(currentStep ? `Current step: ${currentStep}\n\n` : '') +
 				(duration ? `Duration: ${duration}\n\n` : '');
 			
@@ -495,80 +505,20 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 		const end = job.completed_at ? new Date(job.completed_at) : new Date();
 		const seconds = Math.floor((end.getTime() - start.getTime()) / 1000);
 
-		if (seconds < 60) {
+		if (seconds < SECONDS_PER_MINUTE) {
 			return `${seconds}s`;
 		}
 
-		const minutes = Math.floor(seconds / 60);
-		const remainingSeconds = seconds % 60;
+		const minutes = Math.floor(seconds / SECONDS_PER_MINUTE);
+		const remainingSeconds = seconds % SECONDS_PER_MINUTE;
 
-		if (minutes < 60) {
+		if (minutes < MINUTES_PER_HOUR) {
 			return `${minutes}m ${remainingSeconds}s`;
 		}
 
-		const hours = Math.floor(minutes / 60);
-		const remainingMinutes = minutes % 60;
+		const hours = Math.floor(minutes / MINUTES_PER_HOUR);
+		const remainingMinutes = minutes % MINUTES_PER_HOUR;
 		return `${hours}h ${remainingMinutes}m`;
-	}
-
-	private getStatusLabel(status: string | null): string {
-		switch (status) {
-			case 'success':
-				return 'Passed';
-			case 'failure':
-				return 'Failed';
-			case 'cancelled':
-				return 'Cancelled';
-			case 'skipped':
-				return 'Skipped';
-			case 'in_progress':
-				return 'Running';
-			case 'in_progress_failing':
-				return 'Failing';
-			case 'queued':
-				return 'Queued';
-			case 'pending':
-				return 'Pending';
-			default:
-				return status || 'Unknown';
-		}
-	}
-
-	private getStatusIconName(status: string | null): string {
-		switch (status) {
-			case 'success':
-				return 'pass';
-			case 'failure':
-				return 'error';
-			case 'cancelled':
-				return 'circle-slash';
-			case 'skipped':
-				return 'debug-step-over';
-			case 'in_progress':
-			case 'queued':
-			case 'pending':
-			case 'in_progress_failing':
-				return 'sync~spin';
-			default:
-				return 'question';
-		}
-	}
-
-	private getStatusIconColor(status: string | null): string | undefined {
-		switch (status) {
-			case 'success':
-				return 'testing.iconPassed';
-			case 'failure':
-			case 'cancelled':
-			case 'in_progress_failing':
-				return 'testing.iconFailed';
-			case 'in_progress':
-			case 'queued':
-			case 'pending':
-				return 'testing.iconQueued';
-			default:
-				return undefined;
-		}
 	}
 
 	private getTimeAgo(dateString: string): string {
@@ -576,22 +526,22 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 		const now = new Date();
 		const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-		if (seconds < 60) {
+		if (seconds < SECONDS_PER_MINUTE) {
 			return 'just now';
 		}
 
-		const minutes = Math.floor(seconds / 60);
-		if (minutes < 60) {
+		const minutes = Math.floor(seconds / SECONDS_PER_MINUTE);
+		if (minutes < MINUTES_PER_HOUR) {
 			return `${minutes}m ago`;
 		}
 
-		const hours = Math.floor(minutes / 60);
-		if (hours < 24) {
+		const hours = Math.floor(minutes / MINUTES_PER_HOUR);
+		if (hours < HOURS_PER_DAY) {
 			return `${hours}h ago`;
 		}
 
-		const days = Math.floor(hours / 24);
-		if (days < 7) {
+		const days = Math.floor(hours / HOURS_PER_DAY);
+		if (days < DAYS_PER_WEEK) {
 			return `${days}d ago`;
 		}
 

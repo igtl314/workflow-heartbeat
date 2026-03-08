@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { IMonitoringState } from './types';
+import { getStatusIconName, getStatusIconColor, getStatusLabel } from './utils';
 
 export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeItem> {
 	private _onDidChangeTreeData: vscode.EventEmitter<ConfigTreeItem | undefined | null | void> = new vscode.EventEmitter<ConfigTreeItem | undefined | null | void>();
@@ -198,18 +199,18 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 		// Show each workflow with its status
 		for (const workflow of state.workflows) {
 			const isPrimary = workflow.isHead;
-			const statusLabel = isPrimary 
-				? `★ ${this.getStatusLabel(workflow.lastStatus)}`
-				: this.getStatusLabel(workflow.lastStatus);
+			const statusLabel = isPrimary
+				? `★ ${getStatusLabel(workflow.lastStatus)}`
+				: getStatusLabel(workflow.lastStatus);
 			const item = new ConfigTreeItem(
 				workflow.workflowName,
 				statusLabel,
 				vscode.TreeItemCollapsibleState.None,
-				this.getStatusIconName(workflow.lastStatus),
-				this.getStatusIconColor(workflow.lastStatus)
+				getStatusIconName(workflow.lastStatus),
+				getStatusIconColor(workflow.lastStatus)
 			);
 			item.contextValue = isPrimary ? 'workflowItemHead' : 'workflowItem';
-			item.tooltip = `${workflow.workflowName}${isPrimary ? ' (Primary)' : ''}\nStatus: ${this.getStatusLabel(workflow.lastStatus)}\nClick star to set as primary, right-click to remove`;
+			item.tooltip = `${workflow.workflowName}${isPrimary ? ' (Primary)' : ''}\nStatus: ${getStatusLabel(workflow.lastStatus)}\nClick star to set as primary, right-click to remove`;
 			// Store workflowId for commands
 			(item as any).workflowId = workflow.workflowId;
 			items.push(item);
@@ -232,95 +233,6 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 		return items;
 	}
 
-	private getAggregateStatus(workflows: { lastStatus?: string }[]): string | undefined {
-		if (workflows.length === 0) {
-			return undefined;
-		}
-		
-		const statusPriority: Record<string, number> = {
-			'failure': 0,
-			'cancelled': 1,
-			'in_progress_failing': 2,
-			'in_progress': 3,
-			'queued': 4,
-			'pending': 5,
-			'success': 6,
-			'skipped': 7
-		};
-		
-		let worstStatus: string | undefined;
-		let worstPriority = 999;
-		
-		for (const workflow of workflows) {
-			const status = workflow.lastStatus;
-			if (status) {
-				const priority = statusPriority[status] ?? 999;
-				if (priority < worstPriority) {
-					worstPriority = priority;
-					worstStatus = status;
-				}
-			}
-		}
-		
-		return worstStatus;
-	}
-
-	private getStatusLabel(status: string | undefined): string {
-		switch (status) {
-			case 'success':
-				return 'Passing';
-			case 'failure':
-				return 'Failed';
-			case 'cancelled':
-				return 'Cancelled';
-			case 'skipped':
-				return 'Skipped';
-			case 'in_progress':
-				return 'In Progress';
-			case 'queued':
-				return 'Queued';
-			case 'pending':
-				return 'Pending';
-			default:
-				return 'Unknown';
-		}
-	}
-
-	private getStatusIconName(status: string | undefined): string {
-		switch (status) {
-			case 'success':
-				return 'pass';
-			case 'failure':
-				return 'error';
-			case 'cancelled':
-				return 'circle-slash';
-			case 'skipped':
-				return 'debug-step-over';
-			case 'in_progress':
-			case 'queued':
-			case 'pending':
-				return 'sync~spin';
-			default:
-				return 'question';
-		}
-	}
-
-	private getStatusIconColor(status: string | undefined): string | undefined {
-		switch (status) {
-			case 'success':
-				return 'testing.iconPassed';
-			case 'failure':
-			case 'cancelled':
-				return 'testing.iconFailed';
-			case 'in_progress':
-			case 'queued':
-			case 'pending':
-			case 'skipped':
-				return 'testing.iconQueued';
-			default:
-				return undefined;
-		}
-	}
 }
 
 export class ConfigTreeItem extends vscode.TreeItem {

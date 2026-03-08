@@ -1,8 +1,13 @@
 import * as vscode from 'vscode';
 import type { IGitExtension, IMonitoringState, ILegacyMonitoringState, IWorkflowSubscription, TOctokit, IWorkflowQuickPickItem, IWorkflowRun, IWorkflowJob } from './types';
-import { getOctokit, getStatusIcon, getGitHubInfo } from './utils';
+import { getOctokit, getStatusIcon, getGitHubInfo, getAggregateStatus, cleanBranchName } from './utils';
 import { ConfigViewProvider } from './configView';
 import { RunsViewProvider } from './runsView';
+
+// Constants
+const POLLING_INTERVAL_MS = 60_000; // Poll every 60 seconds
+const JOBS_PER_PAGE = 100; // GitHub API pagination limit
+const RUNS_PER_PAGE = 30; // Runs to fetch per workflow
 
 // Global state
 let statusBarItem: vscode.StatusBarItem;
@@ -15,8 +20,6 @@ let currentState: IMonitoringState | undefined;
 
 // Cache for GitHub info
 let cachedGitHubInfo: { owner: string; repo: string } | undefined;
-
-const POLLING_INTERVAL_MS = 60_000; // Poll every 60 seconds
 
 export function activate(context: vscode.ExtensionContext) {
 	console.log('Workflow Heartbeat is now active!');
@@ -76,18 +79,18 @@ export function activate(context: vscode.ExtensionContext) {
 			const jobs: any[] = [];
 			let page = 1;
 			let hasMore = true;
-			
+
 			while (hasMore) {
 				const { data } = await octokit.rest.actions.listJobsForWorkflowRun({
 					owner: state.owner,
 					repo: state.repo,
 					run_id: runId,
-					per_page: 100,
+					per_page: JOBS_PER_PAGE,
 					page: page
 				});
-				
+
 				jobs.push(...data.jobs);
-				hasMore = data.jobs.length === 100;
+				hasMore = data.jobs.length === JOBS_PER_PAGE;
 				page++;
 			}
 
@@ -367,39 +370,6 @@ async function toggleStatusBar(): Promise<void> {
 	await config.update('showStatusBar', !currentValue, vscode.ConfigurationTarget.Global);
 }
 
-// Calculate aggregate status from all workflows (worst status wins)
-function getAggregateStatus(workflows: IWorkflowSubscription[]): string | undefined {
-	if (workflows.length === 0) {
-		return undefined;
-	}
-	
-	const statusPriority: Record<string, number> = {
-		'failure': 0,
-		'cancelled': 1,
-		'in_progress_failing': 2,
-		'in_progress': 3,
-		'queued': 4,
-		'pending': 5,
-		'success': 6,
-		'skipped': 7
-	};
-	
-	let worstStatus: string | undefined;
-	let worstPriority = 999;
-	
-	for (const workflow of workflows) {
-		const status = workflow.lastStatus;
-		if (status) {
-			const priority = statusPriority[status] ?? 999;
-			if (priority < worstPriority) {
-				worstPriority = priority;
-				worstStatus = status;
-			}
-		}
-	}
-	
-	return worstStatus;
-}
 
 function updateStatusBar(state: IMonitoringState | undefined) {
 	const config = vscode.workspace.getConfiguration('woa');
@@ -541,10 +511,7 @@ async function selectWorkflow(context: vscode.ExtensionContext): Promise<void> {
 		}
 
 		// Clean up branch name (remove remote prefix like "origin/")
-		let branchName = selectedBranch.label;
-		if (branchName.includes('/')) {
-			branchName = branchName.split('/').slice(1).join('/');
-		}
+		const branchName = cleanBranchName(selectedBranch.label);
 
 		// Create monitoring state with new multi-workflow format
 		const state: IMonitoringState = {
@@ -622,10 +589,7 @@ async function selectBranch(context: vscode.ExtensionContext): Promise<void> {
 		}
 
 		// Clean up branch name (remove remote prefix like "origin/")
-		let branchName = selectedBranch.label;
-		if (branchName.includes('/')) {
-			branchName = branchName.split('/').slice(1).join('/');
-		}
+		const branchName = cleanBranchName(selectedBranch.label);
 
 		// Update or create state with new branch
 		if (currentState) {
@@ -814,7 +778,7 @@ async function checkRunForFailedSteps(state: IMonitoringState, runId: number): P
 			owner: state.owner,
 			repo: state.repo,
 			run_id: runId,
-			per_page: 100
+			per_page: JOBS_PER_PAGE
 		});
 
 		for (const job of data.jobs) {
@@ -867,7 +831,7 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 				repo: state.repo,
 				workflow_id: workflow.workflowId,
 				branch: state.branch,
-				per_page: 30
+				per_page: RUNS_PER_PAGE
 			});
 			return { workflow, runsData };
 		});
