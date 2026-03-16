@@ -160,6 +160,16 @@
     "menus": {
       "view/title": [
         {
+          "command": "woa.exportConfig",
+          "when": "view == woa.configView",
+          "group": "navigation"
+        },
+        {
+          "command": "woa.importConfig",
+          "when": "view == woa.configView",
+          "group": "navigation"
+        },
+        {
           "command": "woa.toggleHidePassedRuns",
           "when": "view == woa.runsView && !woa.hidePassedRuns",
           "group": "navigation"
