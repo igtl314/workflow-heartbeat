@@ -4,6 +4,13 @@ All notable changes to the "Workflow Heartbeat" extension will be documented in 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.3.0] - 2026-03-16
+
+### Added
+- **Export Configuration**: Export your current configuration (branch, workflows, user filters) to a JSON file
+- **Import Configuration**: Import configuration from a JSON file to easily share or restore settings
+- Configuration backup and sharing capabilities for team collaboration
+
 ## [1.2.0] - 2026-03-07
 
 ### Added
