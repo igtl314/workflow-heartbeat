@@ -149,12 +149,12 @@
       {
         "command": "woa.exportConfig",
         "title": "Workflow Heartbeat: Export Configuration",
-        "icon": "$(export)"
+        "icon": "$(arrow-up)"
       },
       {
         "command": "woa.importConfig",
         "title": "Workflow Heartbeat: Import Configuration",
-        "icon": "$(import)"
+        "icon": "$(arrow-down)"
       }
     ],
     "menus": {
