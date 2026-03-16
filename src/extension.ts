@@ -268,12 +268,12 @@ export function activate(context: vscode.ExtensionContext) {
 			vscode.window.showWarningMessage('No workflows configured.');
 			return;
 		}
-		
+
 		if (currentState.workflows.length === 1) {
 			vscode.window.showInformationMessage('Only one workflow is configured.');
 			return;
 		}
-		
+
 		// Handle both direct workflowId and TreeItem with workflowId property
 		let targetWorkflowId: number | undefined;
 		if (typeof arg === 'number') {
@@ -281,7 +281,7 @@ export function activate(context: vscode.ExtensionContext) {
 		} else if (arg && typeof arg === 'object' && 'workflowId' in arg) {
 			targetWorkflowId = arg.workflowId;
 		}
-		
+
 		// If no workflowId provided, show quick pick
 		if (targetWorkflowId === undefined) {
 			const items = currentState.workflows.map(w => ({
@@ -289,36 +289,168 @@ export function activate(context: vscode.ExtensionContext) {
 				description: w.isHead ? '$(star-full) Primary' : (w.lastStatus || 'unknown'),
 				workflowId: w.workflowId
 			}));
-			
+
 			const selected = await vscode.window.showQuickPick(items, {
 				placeHolder: 'Select workflow to set as primary',
 				title: 'Set Primary Workflow for Status Bar'
 			});
-			
+
 			if (!selected) {
 				return;
 			}
-			
+
 			targetWorkflowId = selected.workflowId;
 		}
-		
+
 		// Update head status
 		for (const workflow of currentState.workflows) {
 			workflow.isHead = workflow.workflowId === targetWorkflowId;
 		}
-		
+
 		// Save state and refresh UI
 		await context.workspaceState.update('monitoringState', currentState);
 		updateStatusBar(currentState);
 		configViewProvider.refresh();
-		
+
 		const headWorkflow = currentState.workflows.find(w => w.isHead);
 		if (headWorkflow) {
 			vscode.window.showInformationMessage(`"${headWorkflow.workflowName}" is now the primary workflow`);
 		}
 	});
 
-	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd, toggleHidePassedRunsCmd, signInCmd, logoutCmd, addWorkflowCmd, removeWorkflowCmd, setHeadWorkflowCmd);
+	// Export configuration command
+	const exportConfigCmd = vscode.commands.registerCommand('woa.exportConfig', async () => {
+		if (!currentState) {
+			vscode.window.showWarningMessage('No configuration to export. Please set up monitoring first.');
+			return;
+		}
+
+		try {
+			// Prepare configuration for export (clean up runtime-only fields)
+			const exportConfig: IMonitoringState = {
+				branch: currentState.branch,
+				owner: currentState.owner,
+				repo: currentState.repo,
+				workflows: currentState.workflows.map(w => ({
+					workflowId: w.workflowId,
+					workflowName: w.workflowName,
+					isHead: w.isHead
+					// Exclude lastRunId and lastStatus as they're runtime state
+				})),
+				notifyForUsers: currentState.notifyForUsers,
+				filterOutUsers: currentState.filterOutUsers
+			};
+
+			// Show save dialog
+			const uri = await vscode.window.showSaveDialog({
+				defaultUri: vscode.Uri.file('workflow-heartbeat-config.json'),
+				filters: {
+					'JSON Files': ['json'],
+					'All Files': ['*']
+				},
+				title: 'Export Workflow Heartbeat Configuration'
+			});
+
+			if (!uri) {
+				return; // User cancelled
+			}
+
+			// Write configuration to file
+			const configJson = JSON.stringify(exportConfig, null, 2);
+			await vscode.workspace.fs.writeFile(uri, Buffer.from(configJson, 'utf8'));
+
+			vscode.window.showInformationMessage(`Configuration exported to ${uri.fsPath}`);
+
+		} catch (error) {
+			console.error('Error exporting configuration:', error);
+			vscode.window.showErrorMessage(`Failed to export configuration: ${error}`);
+		}
+	});
+
+	// Import configuration command
+	const importConfigCmd = vscode.commands.registerCommand('woa.importConfig', async () => {
+		try {
+			// Show open dialog
+			const uris = await vscode.window.showOpenDialog({
+				canSelectMany: false,
+				filters: {
+					'JSON Files': ['json'],
+					'All Files': ['*']
+				},
+				title: 'Import Workflow Heartbeat Configuration'
+			});
+
+			if (!uris || uris.length === 0) {
+				return; // User cancelled
+			}
+
+			// Read configuration from file
+			const fileContent = await vscode.workspace.fs.readFile(uris[0]);
+			const configJson = Buffer.from(fileContent).toString('utf8');
+			const importedConfig = JSON.parse(configJson) as IMonitoringState;
+
+			// Validate imported configuration
+			if (!importedConfig.branch || !importedConfig.owner || !importedConfig.repo) {
+				vscode.window.showErrorMessage('Invalid configuration file: missing required fields (branch, owner, repo).');
+				return;
+			}
+
+			if (!Array.isArray(importedConfig.workflows)) {
+				vscode.window.showErrorMessage('Invalid configuration file: workflows must be an array.');
+				return;
+			}
+
+			// Confirm import
+			const confirmMsg = currentState
+				? 'This will replace your current configuration. Continue?'
+				: 'Import this configuration?';
+			const confirm = await vscode.window.showWarningMessage(
+				confirmMsg,
+				{ modal: true },
+				'Import',
+				'Cancel'
+			);
+
+			if (confirm !== 'Import') {
+				return;
+			}
+
+			// Apply imported configuration
+			const newState: IMonitoringState = {
+				branch: importedConfig.branch,
+				owner: importedConfig.owner,
+				repo: importedConfig.repo,
+				workflows: importedConfig.workflows.map(w => ({
+					workflowId: w.workflowId,
+					workflowName: w.workflowName,
+					isHead: w.isHead
+					// lastRunId and lastStatus will be populated on first poll
+				})),
+				notifyForUsers: importedConfig.notifyForUsers,
+				filterOutUsers: importedConfig.filterOutUsers
+			};
+
+			// Cache GitHub info
+			cachedGitHubInfo = { owner: newState.owner, repo: newState.repo };
+
+			// Start monitoring with imported configuration
+			await startMonitoring(context, newState);
+
+			vscode.window.showInformationMessage(
+				`Configuration imported successfully. Monitoring ${newState.workflows.length} workflow(s) on branch "${newState.branch}".`
+			);
+
+		} catch (error) {
+			console.error('Error importing configuration:', error);
+			if (error instanceof SyntaxError) {
+				vscode.window.showErrorMessage('Failed to import configuration: invalid JSON file.');
+			} else {
+				vscode.window.showErrorMessage(`Failed to import configuration: ${error}`);
+			}
+		}
+	});
+
+	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd, toggleHidePassedRunsCmd, signInCmd, logoutCmd, addWorkflowCmd, removeWorkflowCmd, setHeadWorkflowCmd, exportConfigCmd, importConfigCmd);
 
 	// Listen for configuration changes
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {

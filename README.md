@@ -74,12 +74,21 @@ The extension only reads data and does not make any changes to your repositories
 - `Workflow Heartbeat: Toggle Status Bar` - Show/hide the status bar
 - `Workflow Heartbeat: Stop Monitoring` - Stop monitoring
 - `Workflow Heartbeat: Refresh Status` - Manually refresh the status
+- `Workflow Heartbeat: Export Configuration` - Export your configuration to a JSON file
+- `Workflow Heartbeat: Import Configuration` - Import configuration from a JSON file
 
 ## Known Issues
 
 - The "current step" feature requires the workflow to have a long-running step to be visible (fast jobs complete before you can see the current step)
 
 ## Release Notes
+
+### 1.3.0
+
+New features:
+- Export configuration to JSON file for backup and sharing
+- Import configuration from JSON file
+- Easy configuration migration between workspaces or team members
 
 ### 1.2.0
 
