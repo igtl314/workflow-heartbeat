@@ -2,7 +2,7 @@
   "name": "workflow-heartbeat",
   "displayName": "Workflow Heartbeat",
   "description": "Monitor GitHub Actions workflows and get notified when they fail",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "publisher": "igtl314",
   "icon": "resources/icon-marketplace.png",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "dependencies": false
   },
   "engines": {
-    "vscode": "^1.109.0"
+    "vscode": "^1.110.0"
   },
   "categories": [
     "Other",
