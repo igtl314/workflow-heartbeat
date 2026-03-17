@@ -4,7 +4,7 @@ All notable changes to the "Workflow Heartbeat" extension will be documented in 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [Unreleased]
+## [1.3.1]
 
 ### Fixed
 - Non-grouped job names now display only the segment after the last `/` character instead of the full path (fixes [#3](https://github.com/igtl314/workflow-heartbeat/issues/3))
