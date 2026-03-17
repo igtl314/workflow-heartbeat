@@ -306,9 +306,9 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	}
 
 	private getJobDisplayName(jobName: string): string {
-		// Show only the name after the last '/' character
-		if (jobName.includes('/')) {
-			return jobName.split('/').pop()?.trim() || jobName;
+		// Show only the name after the last nested-job separator " / "
+		if (jobName.includes(' / ')) {
+			return jobName.split(' / ').pop()?.trim() || jobName;
 		}
 		return jobName;
 	}
