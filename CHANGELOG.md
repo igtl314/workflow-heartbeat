@@ -7,7 +7,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [Unreleased]
 
 ### Fixed
-- Job names now display only the name after the last `/` character instead of the full path (fixes [#3](https://github.com/igtl314/workflow-heartbeat/issues/3))
+- Non-grouped job names now display only the segment after the last `/` character instead of the full path (fixes [#3](https://github.com/igtl314/workflow-heartbeat/issues/3))
 
 ## [1.3.0] - 2026-03-16
 
