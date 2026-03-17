@@ -64,9 +64,12 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 		this.refresh();
 	}
 
-	getActors(): string[] {
+	getActors(workflowId?: number): string[] {
 		const actors = new Set<string>();
 		for (const run of this.runs) {
+			if (workflowId !== undefined && run.workflowId !== workflowId) {
+				continue;
+			}
 			if (run.actor) {
 				actors.add(run.actor);
 			}

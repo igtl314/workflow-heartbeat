@@ -18,6 +18,31 @@ let cachedGitHubInfo: { owner: string; repo: string } | undefined;
 
 const POLLING_INTERVAL_MS = 60_000; // Poll every 60 seconds
 
+function normalizeHeadWorkflow(state: IMonitoringState): void {
+	if (!state.workflows || state.workflows.length === 0) {
+		return;
+	}
+
+	if (state.workflows.length === 1) {
+		state.workflows[0].isHead = true;
+		return;
+	}
+
+	const headIndices = state.workflows
+		.map((workflow, index) => workflow.isHead ? index : -1)
+		.filter(index => index !== -1);
+
+	if (headIndices.length === 0) {
+		state.workflows[0].isHead = true;
+		return;
+	}
+
+	const keepHeadAt = headIndices[0];
+	for (let i = 0; i < state.workflows.length; i++) {
+		state.workflows[i].isHead = i === keepHeadAt;
+	}
+}
+
 export function activate(context: vscode.ExtensionContext) {
 	console.log('Workflow Heartbeat is now active!');
 
@@ -46,6 +71,10 @@ export function activate(context: vscode.ExtensionContext) {
 			console.log('Migrated legacy monitoring state to new format');
 		} else {
 			currentState = savedState as IMonitoringState;
+		}
+		if (currentState) {
+			normalizeHeadWorkflow(currentState);
+			context.workspaceState.update('monitoringState', currentState);
 		}
 	}
 
@@ -240,11 +269,7 @@ export function activate(context: vscode.ExtensionContext) {
 		const workflowIndex = currentState.workflows.findIndex(w => w.workflowId === targetWorkflowId);
 		if (workflowIndex !== -1) {
 			const removed = currentState.workflows.splice(workflowIndex, 1)[0];
-			
-			// If we removed the head workflow, promote another one
-			if (removed.isHead && currentState.workflows.length > 0) {
-				currentState.workflows[0].isHead = true;
-			}
+			normalizeHeadWorkflow(currentState);
 			
 			if (currentState.workflows.length === 0) {
 				// No more workflows - stop monitoring
@@ -306,6 +331,7 @@ export function activate(context: vscode.ExtensionContext) {
 		for (const workflow of currentState.workflows) {
 			workflow.isHead = workflow.workflowId === targetWorkflowId;
 		}
+		normalizeHeadWorkflow(currentState);
 
 		// Save state and refresh UI
 		await context.workspaceState.update('monitoringState', currentState);
@@ -429,6 +455,7 @@ export function activate(context: vscode.ExtensionContext) {
 				notifyForUsers: importedConfig.notifyForUsers,
 				filterOutUsers: importedConfig.filterOutUsers
 			};
+			normalizeHeadWorkflow(newState);
 
 			// Cache GitHub info
 			cachedGitHubInfo = { owner: newState.owner, repo: newState.repo };
@@ -891,6 +918,8 @@ async function startMonitoring(context: vscode.ExtensionContext, state: IMonitor
 		return;
 	}
 
+	normalizeHeadWorkflow(state);
+
 	// Stop any existing monitoring
 	if (pollingInterval) {
 		clearInterval(pollingInterval);
@@ -1143,8 +1172,11 @@ async function selectNotifyUsers(context: vscode.ExtensionContext): Promise<void
 			currentGitHubUser = session.account.label;
 		}
 
-		// Use cached actors from runsViewProvider instead of making API call
-		const cachedActors = runsViewProvider.getActors();
+		// Use cached actors from the primary workflow to keep filtering focused
+		const headWorkflow = currentState.workflows.find(w => w.isHead) || currentState.workflows[0];
+		const cachedActors = headWorkflow
+			? runsViewProvider.getActors(headWorkflow.workflowId)
+			: runsViewProvider.getActors();
 		const actors = new Set<string>(cachedActors);
 
 		// Always include current user even if they haven't run the workflow
@@ -1209,8 +1241,11 @@ async function selectFilterUsers(context: vscode.ExtensionContext): Promise<void
 	}
 
 	try {
-		// Use cached actors from runsViewProvider instead of making API call
-		const cachedActors = runsViewProvider.getActors();
+		// Use cached actors from the primary workflow to keep filtering focused
+		const headWorkflow = currentState.workflows.find(w => w.isHead) || currentState.workflows[0];
+		const cachedActors = headWorkflow
+			? runsViewProvider.getActors(headWorkflow.workflowId)
+			: runsViewProvider.getActors();
 		const actors = new Set<string>(cachedActors);
 
 		// Also include any currently filtered users so they remain selectable
