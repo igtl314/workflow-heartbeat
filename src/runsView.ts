@@ -305,6 +305,14 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 		return match ? match[1] : null;
 	}
 
+	private getJobDisplayName(jobName: string): string {
+		// Show only the name after the last nested-job separator " / "
+		if (jobName.includes(' / ')) {
+			return jobName.split(' / ').pop()?.trim() || jobName;
+		}
+		return jobName;
+	}
+
 	private createGroupedJobItems(jobs: IWorkflowJob[], runId: number): RunsTreeItem[] {
 		// Group jobs by their base name
 		const groups = new Map<string, IWorkflowJob[]>();
@@ -421,9 +429,9 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 				? `${this.getStatusLabel(status)} • ${currentStep}${duration ? ` • ${duration}` : ''}`
 				: `${this.getStatusLabel(status)}${duration ? ` • ${duration}` : ''}`;
 
-			// Use variant name if in a group, otherwise full name
+			// Use variant name if in a group, otherwise show name after last '/'
 			const variant = this.getJobVariant(job.name);
-			const displayName = (useVariantName && variant) ? variant : job.name;
+			const displayName = (useVariantName && variant) ? variant : this.getJobDisplayName(job.name);
 
 			const item = new RunsTreeItem(
 				displayName,
