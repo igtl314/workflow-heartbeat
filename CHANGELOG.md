@@ -9,6 +9,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ### Fixed
 - Recent Runs section now updates immediately when filtering out users (previously required manual refresh)
 
+### Changed
+- User filter now only applies to the starred (primary) workflow, allowing other monitored workflows to display all runs unfiltered
+
 ## [1.3.1]
 
 ### Fixed
