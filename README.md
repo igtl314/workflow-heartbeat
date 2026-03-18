@@ -83,6 +83,11 @@ The extension only reads data and does not make any changes to your repositories
 
 ## Release Notes
 
+### Unreleased
+
+Bugfixes:
+- Recent Runs section now updates immediately when filtering out users
+
 ### 1.3.0
 
 New features:

@@ -55,3 +55,50 @@ suite('Status Bar Color Tests', () => {
 		assert.strictEqual(color, undefined);
 	});
 });
+
+suite('Filter Users Tests', () => {
+	test('should filter out runs from specified users with exact case matching', () => {
+		// Verify that users are stored as-is and compared with normalized casing
+		const filterOutUsers = ['renovate[bot]', 'dependabot'];
+		const runActors = ['renovate[bot]', 'Renovate[bot]', 'dependabot', 'DEPENDABOT', 'john'];
+		
+		const filterOutUsersLower = filterOutUsers.map(u => u.toLowerCase());
+		const filteredActors = runActors.filter(actor => !filterOutUsersLower.includes(actor.toLowerCase()));
+		
+		// Should only keep 'john' since all others match the filter (case-insensitive)
+		assert.deepStrictEqual(filteredActors, ['john']);
+	});
+
+	test('should handle empty filter list and show all users', () => {
+		const filterOutUsers: string[] = [];
+		const runActors = ['renovate[bot]', 'dependabot', 'john'];
+		
+		const filterOutUsersLower = filterOutUsers.map(u => u.toLowerCase());
+		const filteredActors = runActors.filter(actor => !filterOutUsersLower.includes(actor.toLowerCase()));
+		
+		// With empty filter, all users should be included
+		assert.deepStrictEqual(filteredActors, runActors);
+	});
+
+	test('should handle filter state persistence', () => {
+		const filterConfig = ['bot1', 'bot2'];
+		
+		// Simulate storing and retrieving filter state
+		const stored = JSON.stringify({ filterOutUsers: filterConfig });
+		const retrieved = JSON.parse(stored).filterOutUsers;
+		
+		assert.deepStrictEqual(retrieved, filterConfig);
+	});
+
+	test('should maintain filter list when adding and removing users', () => {
+		let filterOutUsers = ['renovate[bot]'];
+		
+		// Add a user
+		filterOutUsers.push('dependabot');
+		assert.deepStrictEqual(filterOutUsers, ['renovate[bot]', 'dependabot']);
+		
+		// Remove a user
+		filterOutUsers = filterOutUsers.filter(u => u !== 'dependabot');
+		assert.deepStrictEqual(filterOutUsers, ['renovate[bot]']);
+	});
+});

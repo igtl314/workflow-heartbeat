@@ -1273,7 +1273,7 @@ async function selectFilterUsers(context: vscode.ExtensionContext): Promise<void
 				.filter(s => s.length > 0);
 			await context.workspaceState.update('monitoringState', currentState);
 			configViewProvider.refresh();
-			runsViewProvider.refresh();
+			await refreshStatus(context);
 
 			const message = currentState.filterOutUsers.length > 0
 				? `Filtering out runs from: ${currentState.filterOutUsers.join(', ')}`
@@ -1310,7 +1310,7 @@ async function selectFilterUsers(context: vscode.ExtensionContext): Promise<void
 		configViewProvider.refresh();
 		
 		// Trigger a refresh of the runs view to apply the filter
-		refreshStatus(context);
+		await refreshStatus(context);
 
 		const message = currentState.filterOutUsers.length > 0
 			? `Filtering out runs from: ${currentState.filterOutUsers.join(', ')}`
