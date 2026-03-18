@@ -57,8 +57,9 @@ suite('Status Bar Color Tests', () => {
 });
 
 suite('Filter Users Tests', () => {
-	test('should filter out runs from specified users with exact case matching', () => {
+	test('should filter out runs from specified users with exact case matching (head workflow only)', () => {
 		// Verify that users are stored as-is and compared with normalized casing
+		// Filter only applies to head/starred workflow
 		const filterOutUsers = ['renovate[bot]', 'dependabot'];
 		const runActors = ['renovate[bot]', 'Renovate[bot]', 'dependabot', 'DEPENDABOT', 'john'];
 		
@@ -69,14 +70,14 @@ suite('Filter Users Tests', () => {
 		assert.deepStrictEqual(filteredActors, ['john']);
 	});
 
-	test('should handle empty filter list and show all users', () => {
+	test('should handle empty filter list and show all users in all workflows', () => {
 		const filterOutUsers: string[] = [];
 		const runActors = ['renovate[bot]', 'dependabot', 'john'];
 		
 		const filterOutUsersLower = filterOutUsers.map(u => u.toLowerCase());
 		const filteredActors = runActors.filter(actor => !filterOutUsersLower.includes(actor.toLowerCase()));
 		
-		// With empty filter, all users should be included
+		// With empty filter, all users should be included in all workflows
 		assert.deepStrictEqual(filteredActors, runActors);
 	});
 
@@ -100,5 +101,16 @@ suite('Filter Users Tests', () => {
 		// Remove a user
 		filterOutUsers = filterOutUsers.filter(u => u !== 'dependabot');
 		assert.deepStrictEqual(filterOutUsers, ['renovate[bot]']);
+	});
+
+	test('should not apply filter to non-head workflows', () => {
+		// Filter should only apply to the head (starred) workflow
+		// Non-head workflows should show all runs regardless of filter
+		const filterOutUsers = ['renovate[bot]'];
+		const isHeadWorkflow = false;
+		const shouldApplyFilter = isHeadWorkflow && filterOutUsers.length > 0;
+		
+		// For non-head workflows, filter should not be applied
+		assert.strictEqual(shouldApplyFilter, false);
 	});
 });

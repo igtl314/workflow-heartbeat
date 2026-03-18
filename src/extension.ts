@@ -1039,7 +1039,13 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 		const allRuns: IWorkflowRun[] = [];
 		
 		for (const { workflow, runsData } of workflowRunsResults) {
+			// Only apply filter to the head (starred) workflow
+			const shouldApplyFilter = workflow.isHead && filterOutUsers.length > 0;
+			
 			const filteredRuns = runsData.workflow_runs.filter((run: any) => {
+				if (!shouldApplyFilter) {
+					return true; // Include all runs if not the head workflow or no filter
+				}
 				const actor = (run.actor?.login || '').toLowerCase();
 				return !filterOutUsers.includes(actor);
 			});
