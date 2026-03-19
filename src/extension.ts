@@ -12,11 +12,14 @@ let octokit: TOctokit | undefined;
 let configViewProvider: ConfigViewProvider;
 let runsViewProvider: RunsViewProvider;
 let currentState: IMonitoringState | undefined;
+let cachedRuns: IWorkflowRun[] = [];
 
 // Cache for GitHub info
 let cachedGitHubInfo: { owner: string; repo: string } | undefined;
 
 const POLLING_INTERVAL_MS = 60_000; // Poll every 60 seconds
+const INITIAL_RUNS_PAGE_SIZE = 10;
+const MAX_RUNS_PER_WORKFLOW = 30;
 
 function normalizeHeadWorkflow(state: IMonitoringState): void {
 	if (!state.workflows || state.workflows.length === 0) {
@@ -520,6 +523,37 @@ export function getStatusBarTextColor(lastStatus: string | undefined): string | 
 	return undefined;
 }
 
+function getHeadWorkflowId(state: IMonitoringState): number | undefined {
+	const headWorkflow = state.workflows.find(w => w.isHead) || state.workflows[0];
+	return headWorkflow?.workflowId;
+}
+
+// Exported for testing
+export function filterRunsForDisplay(runs: IWorkflowRun[], state: IMonitoringState): IWorkflowRun[] {
+	const filterOutUsers = state.filterOutUsers?.map(u => u.toLowerCase()) || [];
+	if (filterOutUsers.length === 0) {
+		return runs;
+	}
+
+	const headWorkflowId = getHeadWorkflowId(state);
+	if (headWorkflowId === undefined) {
+		return runs;
+	}
+
+	const filteredUsers = new Set(filterOutUsers);
+	return runs.filter(run => {
+		if (run.workflowId !== headWorkflowId) {
+			return true;
+		}
+		return !filteredUsers.has((run.actor || '').toLowerCase());
+	});
+}
+
+function updateRunsViewFromCache(state: IMonitoringState): void {
+	const displayRuns = filterRunsForDisplay(cachedRuns, state);
+	runsViewProvider.setRuns(displayRuns, displayRuns.length);
+}
+
 async function toggleStatusBar(): Promise<void> {
 	const config = vscode.workspace.getConfiguration('woa');
 	const currentValue = config.get<boolean>('showStatusBar', true);
@@ -1019,39 +1053,27 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 	}
 
 	try {
-		const filterOutUsers = (state.filterOutUsers || []).map(u => u.toLowerCase());
-		
-		// Fetch runs for all workflows in parallel
+		const pagesToFetch = Math.ceil(MAX_RUNS_PER_WORKFLOW / INITIAL_RUNS_PAGE_SIZE);
+
+		// Fetch only the first page first for faster initial rendering
 		const workflowRunsPromises = state.workflows.map(async (workflow) => {
 			const { data: runsData } = await octokit.rest.actions.listWorkflowRuns({
 				owner: state.owner,
 				repo: state.repo,
 				workflow_id: workflow.workflowId,
 				branch: state.branch,
-				per_page: 30
+				per_page: INITIAL_RUNS_PAGE_SIZE,
+				page: 1
 			});
 			return { workflow, runsData };
 		});
 		
 		const workflowRunsResults = await Promise.all(workflowRunsPromises);
 		
-		// Process runs for each workflow
 		const allRuns: IWorkflowRun[] = [];
-		
-		for (const { workflow, runsData } of workflowRunsResults) {
-			// Only apply filter to the head (starred) workflow
-			const shouldApplyFilter = workflow.isHead && filterOutUsers.length > 0;
-			
-			const filteredRuns = runsData.workflow_runs.filter((run: any) => {
-				if (!shouldApplyFilter) {
-					return true; // Include all runs if not the head workflow or no filter
-				}
-				const actor = (run.actor?.login || '').toLowerCase();
-				return !filterOutUsers.includes(actor);
-			});
-			
-			// Build runs array and check for failed steps in in-progress runs
-			for (const run of filteredRuns) {
+
+		const appendRuns = async (workflow: IWorkflowSubscription, runs: any[]): Promise<void> => {
+			for (const run of runs) {
 				const baseRun: IWorkflowRun = {
 					id: run.id,
 					name: run.name,
@@ -1065,17 +1087,20 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 					workflowId: workflow.workflowId,
 					workflowName: workflow.workflowName
 				};
-				
-				// Check for failed steps in in-progress runs
+
 				if (!run.conclusion && (run.status === 'in_progress' || run.status === 'queued' || run.status === 'pending')) {
 					const hasFailure = await checkRunForFailedSteps(state, run.id);
 					if (hasFailure) {
 						baseRun.effectiveStatus = 'in_progress_failing';
 					}
 				}
-				
+
 				allRuns.push(baseRun);
 			}
+		};
+		
+		for (const { workflow, runsData } of workflowRunsResults) {
+			await appendRuns(workflow, runsData.workflow_runs);
 			
 			// Update workflow status based on latest run
 			if (runsData.workflow_runs.length > 0) {
@@ -1088,16 +1113,6 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 				workflow.lastRunId = latestRun.id;
 				if (latestRunFromAllRuns) {
 					workflow.lastStatus = latestRunFromAllRuns.effectiveStatus || (latestRun.conclusion ?? latestRun.status ?? undefined);
-				} else {
-					// Latest run was filtered out, need to check for failed steps separately
-					let effectiveStatus = latestRun.conclusion ?? latestRun.status ?? undefined;
-					if (!latestRun.conclusion && (latestRun.status === 'in_progress' || latestRun.status === 'queued' || latestRun.status === 'pending')) {
-						const hasFailure = await checkRunForFailedSteps(state, latestRun.id);
-						if (hasFailure) {
-							effectiveStatus = 'in_progress_failing';
-						}
-					}
-					workflow.lastStatus = effectiveStatus;
 				}
 				
 				// Check if we should notify based on user filter
@@ -1125,10 +1140,44 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 				}
 			}
 		}
-		
-		// Update runs view with all runs sorted by date
+
+		// Show first page immediately
 		allRuns.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-		runsViewProvider.setRuns(allRuns, allRuns.length);
+		cachedRuns = [...allRuns];
+		updateRunsViewFromCache(state);
+
+		// Fetch remaining pages (up to MAX_RUNS_PER_WORKFLOW) in background for pagination
+		const remainingRunsPromises = workflowRunsResults.map(async ({ workflow, runsData }) => {
+			if (runsData.workflow_runs.length < INITIAL_RUNS_PAGE_SIZE || pagesToFetch <= 1) {
+				return { workflow, runs: [] as any[] };
+			}
+
+			const pageRequests: Promise<any>[] = [];
+			for (let page = 2; page <= pagesToFetch; page++) {
+				pageRequests.push(octokit.rest.actions.listWorkflowRuns({
+					owner: state.owner,
+					repo: state.repo,
+					workflow_id: workflow.workflowId,
+					branch: state.branch,
+					per_page: INITIAL_RUNS_PAGE_SIZE,
+					page
+				}));
+			}
+
+			const pageResponses = await Promise.all(pageRequests);
+			const runs = pageResponses.flatMap(response => response.data.workflow_runs || []);
+			return { workflow, runs };
+		});
+
+		const remainingRunsResults = await Promise.all(remainingRunsPromises);
+		for (const { workflow, runs } of remainingRunsResults) {
+			await appendRuns(workflow, runs);
+		}
+		
+		// Cache full set and update view with filtered display data
+		allRuns.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+		cachedRuns = [...allRuns];
+		updateRunsViewFromCache(state);
 		
 		// Save state
 		currentState = state;
@@ -1150,6 +1199,7 @@ async function stopMonitoring(context: vscode.ExtensionContext): Promise<void> {
 	}
 
 	currentState = undefined;
+	cachedRuns = [];
 	await context.workspaceState.update('monitoringState', undefined);
 	updateStatusBar(undefined);
 	configViewProvider.refresh();
@@ -1279,14 +1329,7 @@ async function selectFilterUsers(context: vscode.ExtensionContext): Promise<void
 				.filter(s => s.length > 0);
 			await context.workspaceState.update('monitoringState', currentState);
 			configViewProvider.refresh();
-			await vscode.window.withProgress(
-				{
-					location: vscode.ProgressLocation.Window,
-					title: 'Refreshing workflow runs...',
-					cancellable: false
-				},
-				() => refreshStatus(context)
-			);
+			updateRunsViewFromCache(currentState);
 
 			const message = currentState.filterOutUsers.length > 0
 				? `Filtering out runs from: ${currentState.filterOutUsers.join(', ')}`
@@ -1321,16 +1364,9 @@ async function selectFilterUsers(context: vscode.ExtensionContext): Promise<void
 		currentState.filterOutUsers = selectedUsers.map(item => item.username);
 		await context.workspaceState.update('monitoringState', currentState);
 		configViewProvider.refresh();
-		
-		// Trigger a refresh of the runs view to apply the filter
-		await vscode.window.withProgress(
-			{
-				location: vscode.ProgressLocation.Window,
-				title: 'Refreshing workflow runs...',
-				cancellable: false
-			},
-			() => refreshStatus(context)
-		);
+
+		// Apply filter to cached runs without refetching
+		updateRunsViewFromCache(currentState);
 
 		const message = currentState.filterOutUsers.length > 0
 			? `Filtering out runs from: ${currentState.filterOutUsers.join(', ')}`
