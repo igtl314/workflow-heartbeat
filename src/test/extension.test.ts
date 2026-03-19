@@ -57,8 +57,8 @@ suite('Status Bar Color Tests', () => {
 });
 
 suite('Filter Users Tests', () => {
-	test('should filter out runs from specified users with exact case matching (head workflow only)', () => {
-		// Verify that users are stored as-is and compared with normalized casing
+	test('should filter out runs from specified users using case-insensitive matching (head workflow only)', () => {
+		// Verify that users are stored as-is but compared using case-insensitive matching via normalized casing
 		// Filter only applies to head/starred workflow
 		const filterOutUsers = ['renovate[bot]', 'dependabot'];
 		const runActors = ['renovate[bot]', 'Renovate[bot]', 'dependabot', 'DEPENDABOT', 'john'];
