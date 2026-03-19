@@ -4,6 +4,14 @@ All notable changes to the "Workflow Heartbeat" extension will be documented in 
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [Unreleased]
+
+### Fixed
+- Recent Runs section now updates immediately when filtering out users (previously required manual refresh)
+
+### Changed
+- User filter now only applies to the starred (primary) workflow, allowing other monitored workflows to display all runs unfiltered
+
 ## [1.3.1]
 
 ### Fixed
