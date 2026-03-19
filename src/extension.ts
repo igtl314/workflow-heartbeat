@@ -1279,7 +1279,14 @@ async function selectFilterUsers(context: vscode.ExtensionContext): Promise<void
 				.filter(s => s.length > 0);
 			await context.workspaceState.update('monitoringState', currentState);
 			configViewProvider.refresh();
-			await refreshStatus(context);
+			await vscode.window.withProgress(
+				{
+					location: vscode.ProgressLocation.Window,
+					title: 'Refreshing workflow runs...',
+					cancellable: false
+				},
+				() => refreshStatus(context)
+			);
 
 			const message = currentState.filterOutUsers.length > 0
 				? `Filtering out runs from: ${currentState.filterOutUsers.join(', ')}`
@@ -1316,7 +1323,14 @@ async function selectFilterUsers(context: vscode.ExtensionContext): Promise<void
 		configViewProvider.refresh();
 		
 		// Trigger a refresh of the runs view to apply the filter
-		await refreshStatus(context);
+		await vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Window,
+				title: 'Refreshing workflow runs...',
+				cancellable: false
+			},
+			() => refreshStatus(context)
+		);
 
 		const message = currentState.filterOutUsers.length > 0
 			? `Filtering out runs from: ${currentState.filterOutUsers.join(', ')}`
