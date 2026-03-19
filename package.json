@@ -155,6 +155,11 @@
         "command": "woa.importConfig",
         "title": "Workflow Heartbeat: Import Configuration",
         "icon": "$(arrow-down)"
+      },
+      {
+        "command": "woa.reportIssue",
+        "title": "Workflow Heartbeat: Report an Issue",
+        "icon": "$(link-external)"
       }
     ],
     "menus": {

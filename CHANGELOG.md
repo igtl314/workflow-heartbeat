@@ -6,6 +6,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+### Added
+- "Report Issue" action in the Configuration view that opens the extension GitHub issue page
+
 ### Fixed
 - Recent Runs section now updates immediately when filtering out users (previously required manual refresh)
 

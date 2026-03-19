@@ -184,6 +184,20 @@ export class ConfigViewProvider implements vscode.TreeDataProvider<ConfigTreeIte
 			items.push(stopItem);
 		}
 
+		// Report issue action
+		const reportIssueItem = new ConfigTreeItem(
+			'Report Issue',
+			'Open GitHub Issues',
+			vscode.TreeItemCollapsibleState.None,
+			'link-external'
+		);
+		reportIssueItem.command = {
+			command: 'woa.reportIssue',
+			title: 'Report an Issue'
+		};
+		reportIssueItem.contextValue = 'reportIssue';
+		items.push(reportIssueItem);
+
 		return items;
 	}
 

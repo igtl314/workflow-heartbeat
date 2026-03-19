@@ -20,6 +20,7 @@ let cachedGitHubInfo: { owner: string; repo: string } | undefined;
 const POLLING_INTERVAL_MS = 60_000; // Poll every 60 seconds
 const INITIAL_RUNS_PAGE_SIZE = 10;
 const MAX_RUNS_PER_WORKFLOW = 30;
+const REPORT_ISSUE_URL = 'https://github.com/igtl314/workflow-heartbeat/issues/new/choose';
 
 function normalizeHeadWorkflow(state: IMonitoringState): void {
 	if (!state.workflows || state.workflows.length === 0) {
@@ -480,7 +481,12 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
-	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd, toggleHidePassedRunsCmd, signInCmd, logoutCmd, addWorkflowCmd, removeWorkflowCmd, setHeadWorkflowCmd, exportConfigCmd, importConfigCmd);
+	// Report issue command
+	const reportIssueCmd = vscode.commands.registerCommand('woa.reportIssue', async () => {
+		await vscode.env.openExternal(vscode.Uri.parse(REPORT_ISSUE_URL));
+	});
+
+	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd, toggleHidePassedRunsCmd, signInCmd, logoutCmd, addWorkflowCmd, removeWorkflowCmd, setHeadWorkflowCmd, exportConfigCmd, importConfigCmd, reportIssueCmd);
 
 	// Listen for configuration changes
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {

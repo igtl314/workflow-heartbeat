@@ -19,6 +19,7 @@ Monitor GitHub Actions workflows directly from VS Code and get notified when the
 
 **Activity Bar Panel**
 - **Configuration View**: Select branch, manage workflows, and filter notifications by user
+- **Report Issue**: Open the extension GitHub issue page directly from Configuration
 - **Workflows List**: View all monitored workflows with status, set primary (★), add/remove
 - **GitHub Account Display**: Shows your logged-in GitHub user
 - **Recent Runs View**: Browse workflow runs with expandable job details
@@ -76,6 +77,7 @@ The extension only reads data and does not make any changes to your repositories
 - `Workflow Heartbeat: Refresh Status` - Manually refresh the status
 - `Workflow Heartbeat: Export Configuration` - Export your configuration to a JSON file
 - `Workflow Heartbeat: Import Configuration` - Import configuration from a JSON file
+- `Workflow Heartbeat: Report an Issue` - Open the extension GitHub issue page
 
 ## Known Issues
 
@@ -87,6 +89,9 @@ The extension only reads data and does not make any changes to your repositories
 
 Bugfixes:
 - Recent Runs section now updates immediately when filtering out users
+
+Additions:
+- Report Issue action in Configuration opens the extension GitHub issues page
 
 ### 1.3.0
 

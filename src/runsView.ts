@@ -1,6 +1,21 @@
 import * as vscode from 'vscode';
 import type { IMonitoringState, IWorkflowRun, IWorkflowJob } from './types';
 
+function splitJobNamePath(jobName: string): string[] {
+	return jobName
+		.split('/')
+		.map(part => part.trim())
+		.filter(part => part.length > 0);
+}
+
+export function getJobNameAfterLastSlash(jobName: string): string {
+	const parts = splitJobNamePath(jobName);
+	if (parts.length === 0) {
+		return jobName.trim();
+	}
+	return parts[parts.length - 1];
+}
+
 // Extended run interface with jobs
 export interface IWorkflowRunWithJobs extends IWorkflowRun {
 	jobs?: IWorkflowJob[];
@@ -286,10 +301,10 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	}
 
 	private getJobBaseName(jobName: string): string {
-		// Extract base name from job name like "verify / lint" -> "verify"
-		// First check for slash separator (GitHub Actions nested jobs)
-		if (jobName.includes(' / ')) {
-			return jobName.split(' / ')[0].trim();
+		// Extract base name from job name like "verify / lint" or "verify/lint" -> "verify"
+		const pathParts = splitJobNamePath(jobName);
+		if (pathParts.length > 1) {
+			return pathParts[0];
 		}
 		// Then check for parentheses variant like "verify (ubuntu)" -> "verify"
 		const match = jobName.match(/^(.+?)\s*\([^)]+\)\s*$/);
@@ -298,10 +313,10 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 
 	private getJobVariant(jobName: string): string | null {
 		// Extract variant from job name
-		// First check for slash separator like "verify / lint" -> "lint"
-		if (jobName.includes(' / ')) {
-			const parts = jobName.split(' / ');
-			return parts.slice(1).join(' / ').trim();
+		// First check for slash separator like "verify / lint" or "verify/lint" -> "lint"
+		const pathParts = splitJobNamePath(jobName);
+		if (pathParts.length > 1) {
+			return pathParts[pathParts.length - 1];
 		}
 		// Then check for parentheses like "verify (ubuntu)" -> "ubuntu"
 		const match = jobName.match(/\(([^)]+)\)\s*$/);
@@ -309,11 +324,8 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	}
 
 	private getJobDisplayName(jobName: string): string {
-		// Show only the name after the last nested-job separator " / "
-		if (jobName.includes(' / ')) {
-			return jobName.split(' / ').pop()?.trim() || jobName;
-		}
-		return jobName;
+		// Show only the name after the last nested-job separator '/'
+		return getJobNameAfterLastSlash(jobName);
 	}
 
 	private createGroupedJobItems(jobs: IWorkflowJob[], runId: number): RunsTreeItem[] {

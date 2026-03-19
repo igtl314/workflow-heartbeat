@@ -4,6 +4,8 @@ import * as assert from 'assert';
 // as well as import your extension to test it
 import * as vscode from 'vscode';
 import { filterRunsForDisplay, getStatusBarBackgroundColor, getStatusBarTextColor } from '../extension';
+import { getJobNameAfterLastSlash } from '../runsView';
+import { RunsViewProvider } from '../runsView';
 import type { IMonitoringState, IWorkflowRun } from '../types';
 
 suite('Extension Test Suite', () => {
@@ -198,5 +200,25 @@ suite('Filter Users Tests', () => {
 		
 		// For non-head workflows, filter should not be applied
 		assert.strictEqual(shouldApplyFilter, false);
+	});
+});
+
+suite('Job Name Display Tests', () => {
+	test('should show text after the last slash with spaces', () => {
+		assert.strictEqual(getJobNameAfterLastSlash('verify / lint / unit'), 'unit');
+	});
+
+	test('should show text after the last slash without spaces', () => {
+		assert.strictEqual(getJobNameAfterLastSlash('verify/lint/unit'), 'unit');
+	});
+
+	test('should keep original name when no slash exists', () => {
+		assert.strictEqual(getJobNameAfterLastSlash('lint'), 'lint');
+	});
+
+	test('should use last path segment for grouped variant names', () => {
+		const provider = new RunsViewProvider({} as vscode.ExtensionContext, () => undefined);
+		const variant = (provider as any).getJobVariant('Standalone Main / production / test-cloud-role-production / system-role-stest-edge-prod');
+		assert.strictEqual(variant, 'system-role-stest-edge-prod');
 	});
 });
