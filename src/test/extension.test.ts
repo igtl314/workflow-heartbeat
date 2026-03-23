@@ -203,6 +203,123 @@ suite('Filter Users Tests', () => {
 	});
 });
 
+suite('Rerun Failed Jobs Tests', () => {
+	test('failed run item should have runFailed contextValue', () => {
+		const provider = new RunsViewProvider({} as vscode.ExtensionContext, () => undefined);
+		const runs: IWorkflowRun[] = [
+			{
+				id: 1,
+				name: 'failed run',
+				status: 'completed',
+				conclusion: 'failure',
+				html_url: 'https://example.com/1',
+				created_at: '2026-03-19T10:00:00.000Z',
+				head_sha: '1234567890abcdef',
+				run_number: 1,
+				actor: 'alice',
+				workflowId: 1,
+				workflowName: 'CI'
+			}
+		];
+		provider.setRuns(runs);
+		const items = (provider as any).getRunItems(runs);
+		assert.strictEqual(items[0].contextValue, 'runFailed');
+	});
+
+	test('successful run item should have run contextValue', () => {
+		const provider = new RunsViewProvider({} as vscode.ExtensionContext, () => undefined);
+		const runs: IWorkflowRun[] = [
+			{
+				id: 2,
+				name: 'passing run',
+				status: 'completed',
+				conclusion: 'success',
+				html_url: 'https://example.com/2',
+				created_at: '2026-03-19T10:01:00.000Z',
+				head_sha: 'abcdef1234567890',
+				run_number: 2,
+				actor: 'alice',
+				workflowId: 1,
+				workflowName: 'CI'
+			}
+		];
+		provider.setRuns(runs);
+		const items = (provider as any).getRunItems(runs);
+		assert.strictEqual(items[0].contextValue, 'run');
+	});
+
+	test('cancelled run item should have run contextValue', () => {
+		const provider = new RunsViewProvider({} as vscode.ExtensionContext, () => undefined);
+		const runs: IWorkflowRun[] = [
+			{
+				id: 3,
+				name: 'cancelled run',
+				status: 'completed',
+				conclusion: 'cancelled',
+				html_url: 'https://example.com/3',
+				created_at: '2026-03-19T10:02:00.000Z',
+				head_sha: 'deadbeefdeadbeef',
+				run_number: 3,
+				actor: 'alice',
+				workflowId: 1,
+				workflowName: 'CI'
+			}
+		];
+		provider.setRuns(runs);
+		const items = (provider as any).getRunItems(runs);
+		assert.strictEqual(items[0].contextValue, 'run');
+	});
+
+	test('job group with all failures should have jobGroupFailed contextValue', () => {
+		const provider = new RunsViewProvider({} as vscode.ExtensionContext, () => undefined);
+		const jobs = [
+			{ id: 1, name: 'verify (ubuntu)', status: 'completed', conclusion: 'failure', html_url: '', started_at: null, completed_at: null },
+			{ id: 2, name: 'verify (windows)', status: 'completed', conclusion: 'failure', html_url: '', started_at: null, completed_at: null }
+		];
+		const items = (provider as any).createGroupedJobItems(jobs, 42);
+		assert.strictEqual(items[0].contextValue, 'jobGroupFailed');
+	});
+
+	test('job group with mixed results should have jobGroupFailed contextValue', () => {
+		const provider = new RunsViewProvider({} as vscode.ExtensionContext, () => undefined);
+		const jobs = [
+			{ id: 1, name: 'verify (ubuntu)', status: 'completed', conclusion: 'success', html_url: '', started_at: null, completed_at: null },
+			{ id: 2, name: 'verify (windows)', status: 'completed', conclusion: 'failure', html_url: '', started_at: null, completed_at: null }
+		];
+		const items = (provider as any).createGroupedJobItems(jobs, 42);
+		// Mixed result: one passed, one failed — groupStatus is 'failure', so still jobGroupFailed
+		assert.strictEqual(items[0].contextValue, 'jobGroupFailed');
+	});
+
+	test('job group with all passing should have jobGroup contextValue', () => {
+		const provider = new RunsViewProvider({} as vscode.ExtensionContext, () => undefined);
+		const jobs = [
+			{ id: 1, name: 'verify (ubuntu)', status: 'completed', conclusion: 'success', html_url: '', started_at: null, completed_at: null },
+			{ id: 2, name: 'verify (windows)', status: 'completed', conclusion: 'success', html_url: '', started_at: null, completed_at: null }
+		];
+		const items = (provider as any).createGroupedJobItems(jobs, 42);
+		assert.strictEqual(items[0].contextValue, 'jobGroup');
+	});
+
+	test('getFailedJobsForGroup returns only failed jobs in the group', () => {
+		const provider = new RunsViewProvider({} as vscode.ExtensionContext, () => undefined);
+		const runs: IWorkflowRun[] = [{
+			id: 10, name: 'run', status: 'completed', conclusion: 'failure',
+			html_url: '', created_at: '', head_sha: '', run_number: 1, actor: '', workflowId: 1, workflowName: 'CI'
+		}];
+		provider.setRuns(runs);
+		// Populate cache directly
+		const jobs = [
+			{ id: 1, name: 'verify (ubuntu)', status: 'completed', conclusion: 'failure', html_url: '', started_at: null, completed_at: null },
+			{ id: 2, name: 'verify (windows)', status: 'completed', conclusion: 'success', html_url: '', started_at: null, completed_at: null },
+			{ id: 3, name: 'lint', status: 'completed', conclusion: 'failure', html_url: '', started_at: null, completed_at: null }
+		];
+		(provider as any).jobsCache.set('1:10', jobs);
+		const failed = provider.getFailedJobsForGroup(10, 'verify');
+		assert.deepStrictEqual(failed.map((j: any) => j.id), [1]);
+	});
+});
+
 suite('Job Name Display Tests', () => {
 	test('should show text after the last slash with spaces', () => {
 		assert.strictEqual(getJobNameAfterLastSlash('verify / lint / unit'), 'unit');
