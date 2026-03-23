@@ -90,6 +90,10 @@ The extension reads workflow data and can trigger workflow job reruns on your be
 
 ### Unreleased
 
+- No unreleased changes yet.
+
+### 1.4.0
+
 Additions:
 - Report Issue action in Configuration opens the extension GitHub issues page
 - **Rerun Failed Jobs**: right-click a failed run to rerun all failed jobs; right-click a failed job group to rerun only the failed jobs within that group
