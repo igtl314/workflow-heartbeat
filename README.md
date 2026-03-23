@@ -37,6 +37,8 @@ Monitor GitHub Actions workflows directly from VS Code and get notified when the
 - View current step for in-progress jobs
 - See step-by-step status in tooltips
 - Click any job to open it on GitHub
+- Right-click a failed run to **Rerun Failed Jobs** for the entire workflow run
+- Right-click a failed job group to rerun only the failed jobs within that group
 
 ## Usage
 
@@ -60,7 +62,7 @@ This extension requests the `repo` scope when you sign in to GitHub. This permis
 - Read workflow run status and job details
 - Access workflow information for private repositories
 
-The extension only reads data and does not make any changes to your repositories.
+The extension reads workflow data and can trigger workflow job reruns on your behalf when you use the "Rerun Failed Jobs" action.
 
 ## Extension Commands
 
@@ -78,6 +80,7 @@ The extension only reads data and does not make any changes to your repositories
 - `Workflow Heartbeat: Export Configuration` - Export your configuration to a JSON file
 - `Workflow Heartbeat: Import Configuration` - Import configuration from a JSON file
 - `Workflow Heartbeat: Report an Issue` - Open the extension GitHub issue page
+- `Rerun Failed Jobs` *(right-click context menu)* - Rerun failed jobs for a workflow run or a specific job group
 
 ## Known Issues
 
@@ -87,11 +90,12 @@ The extension only reads data and does not make any changes to your repositories
 
 ### Unreleased
 
-Bugfixes:
-- Recent Runs section now updates immediately when filtering out users
-
 Additions:
 - Report Issue action in Configuration opens the extension GitHub issues page
+- **Rerun Failed Jobs**: right-click a failed run to rerun all failed jobs; right-click a failed job group to rerun only the failed jobs within that group
+
+Bugfixes:
+- Recent Runs section now updates immediately when filtering out users
 
 ### 1.3.0
 

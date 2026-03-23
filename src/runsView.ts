@@ -21,7 +21,7 @@ export interface IWorkflowRunWithJobs extends IWorkflowRun {
 	jobs?: IWorkflowJob[];
 }
 
-type TreeItemType = 'run' | 'job' | 'info' | 'jobGroup' | 'showMore' | 'workflow';
+type TreeItemType = 'run' | 'runFailed' | 'job' | 'info' | 'jobGroup' | 'jobGroupFailed' | 'showMore' | 'workflow';
 
 export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 	private _onDidChangeTreeData: vscode.EventEmitter<RunsTreeItem | undefined | null | void> = new vscode.EventEmitter<RunsTreeItem | undefined | null | void>();
@@ -92,6 +92,17 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 		return Array.from(actors);
 	}
 
+	getFailedJobsForGroup(runId: number, groupName: string): IWorkflowJob[] {
+		const run = this.runs.find(r => r.id === runId);
+		const cacheKey = `${run?.workflowId || 0}:${runId}`;
+		const jobs = this.jobsCache.get(cacheKey);
+		if (!jobs) { return []; }
+		return jobs.filter(job =>
+			this.getJobBaseName(job.name) === groupName &&
+			job.conclusion === 'failure'
+		);
+	}
+
 	setFetchJobsCallback(callback: (runId: number) => Promise<IWorkflowJob[]>): void {
 		this.fetchJobsCallback = callback;
 	}
@@ -102,12 +113,12 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 
 	async getChildren(element?: RunsTreeItem): Promise<RunsTreeItem[]> {
 		// If element is a job group, return jobs in that group
-		if (element && element.itemType === 'jobGroup' && element.runId && element.groupName) {
+		if (element && (element.itemType === 'jobGroup' || element.itemType === 'jobGroupFailed') && element.runId && element.groupName) {
 			return this.getJobsInGroup(element.runId, element.groupName);
 		}
 
 		// If element is a run, return jobs/groups for that run
-		if (element && element.itemType === 'run' && element.runId) {
+		if (element && (element.itemType === 'run' || element.itemType === 'runFailed') && element.runId) {
 			return this.getJobsForRun(element.runId);
 		}
 
@@ -196,12 +207,13 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 			const timeAgo = this.getTimeAgo(run.created_at);
 			const commitShort = run.head_sha.substring(0, 7);
 			
+			const runItemType: TreeItemType = status === 'failure' ? 'runFailed' : 'run';
 			const item = new RunsTreeItem(
 				`#${run.run_number}`,
 				`${this.getStatusLabel(status)} • ${run.actor} • ${timeAgo}`,
 				vscode.TreeItemCollapsibleState.Collapsed,
 				this.getStatusIconName(status),
-				'run',
+				runItemType,
 				this.getStatusIconColor(status),
 				run.id,
 				run.html_url
@@ -351,13 +363,14 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 				const groupStatus = this.getGroupStatus(groupJobs);
 				const passedCount = groupJobs.filter(j => j.conclusion === 'success' || j.conclusion === 'skipped').length;
 				const totalCount = groupJobs.length;
-				
+				const groupItemType: TreeItemType = groupStatus === 'failure' ? 'jobGroupFailed' : 'jobGroup';
+
 				const item = new RunsTreeItem(
 					groupName,
 					`${passedCount}/${totalCount} passed`,
 					vscode.TreeItemCollapsibleState.Collapsed,
 					this.getStatusIconName(groupStatus),
-					'jobGroup',
+					groupItemType,
 					this.getStatusIconColor(groupStatus),
 					runId,
 					undefined,

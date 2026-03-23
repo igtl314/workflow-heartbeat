@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import type { IGitExtension, IMonitoringState, ILegacyMonitoringState, IWorkflowSubscription, TOctokit, IWorkflowQuickPickItem, IWorkflowRun, IWorkflowJob } from './types';
 import { getOctokit, getStatusIcon, getGitHubInfo } from './utils';
 import { ConfigViewProvider } from './configView';
-import { RunsViewProvider } from './runsView';
+import { RunsViewProvider, RunsTreeItem } from './runsView';
 
 // Global state
 let statusBarItem: vscode.StatusBarItem;
@@ -486,7 +486,77 @@ export function activate(context: vscode.ExtensionContext) {
 		await vscode.env.openExternal(vscode.Uri.parse(REPORT_ISSUE_URL));
 	});
 
-	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd, toggleHidePassedRunsCmd, signInCmd, logoutCmd, addWorkflowCmd, removeWorkflowCmd, setHeadWorkflowCmd, exportConfigCmd, importConfigCmd, reportIssueCmd);
+	// Rerun failed jobs command - works at both run level and job group level
+	const rerunFailedJobsCmd = vscode.commands.registerCommand('woa.rerunFailedJobs', async (item?: RunsTreeItem) => {
+		const runId = item?.runId;
+		if (!runId) {
+			vscode.window.showErrorMessage('No run selected.');
+			return;
+		}
+
+		if (!currentState) {
+			vscode.window.showErrorMessage('No workflow is being monitored.');
+			return;
+		}
+
+		const confirm = await vscode.window.showWarningMessage(
+			'Rerun failed jobs for this workflow run?',
+			{ modal: true },
+			'Rerun',
+			'Cancel'
+		);
+		if (confirm !== 'Rerun') {
+			return;
+		}
+
+		if (!octokit) {
+			const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
+			if (!session) {
+				vscode.window.showErrorMessage('Please sign in to GitHub to rerun jobs.');
+				return;
+			}
+			octokit = await getOctokit(session.accessToken);
+		}
+
+		try {
+			const isGroupRerun = item?.itemType === 'jobGroupFailed' && item?.groupName;
+			if (isGroupRerun) {
+				// Rerun only the failed jobs within this group
+				const failedJobs = runsViewProvider.getFailedJobsForGroup(runId, item!.groupName!);
+				if (failedJobs.length === 0) {
+					vscode.window.showErrorMessage('No failed jobs found for this group.');
+					return;
+				}
+				await Promise.all(failedJobs.map(job =>
+					octokit!.rest.actions.reRunJobForWorkflowRun({
+						owner: currentState!.owner,
+						repo: currentState!.repo,
+						job_id: job.id
+					})
+				));
+			} else {
+				// Rerun all failed jobs in the entire workflow run
+				await octokit.rest.actions.reRunWorkflowFailedJobs({
+					owner: currentState.owner,
+					repo: currentState.repo,
+					run_id: runId
+				});
+			}
+			vscode.window.showInformationMessage('Rerun of failed jobs started successfully.');
+			await refreshStatus(context);
+		} catch (error: any) {
+			const status = error?.status;
+			if (status === 422) {
+				vscode.window.showErrorMessage('No failed jobs to rerun for this run.');
+			} else if (status === 403) {
+				vscode.window.showErrorMessage('You do not have permission to rerun jobs for this repository.');
+			} else {
+				vscode.window.showErrorMessage(`Failed to rerun jobs: ${error?.message ?? String(error)}`);
+			}
+		}
+	});
+
+	context.subscriptions.push(selectWorkflowCmd, selectBranchCmd, selectWorkflowOnlyCmd, stopMonitoringCmd, refreshStatusCmd, selectNotifyUsersCmd, selectFilterUsersCmd, toggleStatusBarCmd, openRunCmd, openWorkflowPageCmd, showMoreRunsCmd, toggleHidePassedRunsCmd, signInCmd, logoutCmd, addWorkflowCmd, removeWorkflowCmd, setHeadWorkflowCmd, exportConfigCmd, importConfigCmd, reportIssueCmd, rerunFailedJobsCmd);
 
 	// Listen for configuration changes
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {

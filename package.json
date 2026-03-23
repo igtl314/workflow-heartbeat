@@ -160,6 +160,11 @@
         "command": "woa.reportIssue",
         "title": "Workflow Heartbeat: Report an Issue",
         "icon": "$(link-external)"
+      },
+      {
+        "command": "woa.rerunFailedJobs",
+        "title": "Rerun Failed Jobs",
+        "icon": "$(debug-rerun)"
       }
     ],
     "menus": {
@@ -210,6 +215,16 @@
           "command": "woa.removeWorkflow",
           "when": "view == woa.configView && viewItem == workflowItemHead",
           "group": "context"
+        },
+        {
+          "command": "woa.rerunFailedJobs",
+          "when": "view == woa.runsView && viewItem == runFailed",
+          "group": "inline"
+        },
+        {
+          "command": "woa.rerunFailedJobs",
+          "when": "view == woa.runsView && viewItem == jobGroupFailed",
+          "group": "inline"
         }
       ]
     },

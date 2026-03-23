@@ -8,6 +8,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Added
 - "Report Issue" action in the Configuration view that opens the extension GitHub issue page
+- **Rerun Failed Jobs**: Right-click a failed run in Recent Runs and select "Rerun Failed Jobs" to trigger a rerun without leaving VS Code; also available on individual job groups — reruns only the failed jobs within that group
 
 ### Fixed
 - Recent Runs section now updates immediately when filtering out users (previously required manual refresh)
