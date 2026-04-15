@@ -437,8 +437,7 @@ export function activate(context: vscode.ExtensionContext) {
 			const confirm = await vscode.window.showWarningMessage(
 				confirmMsg,
 				{ modal: true },
-				'Import',
-				'Cancel'
+				'Import'
 			);
 
 			if (confirm !== 'Import') {
@@ -502,8 +501,7 @@ export function activate(context: vscode.ExtensionContext) {
 		const confirm = await vscode.window.showWarningMessage(
 			'Rerun failed jobs for this workflow run?',
 			{ modal: true },
-			'Rerun',
-			'Cancel'
+			'Rerun'
 		);
 		if (confirm !== 'Rerun') {
 			return;
