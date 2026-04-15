@@ -3,6 +3,7 @@ import type { IGitExtension, IMonitoringState, ILegacyMonitoringState, IWorkflow
 import { getOctokit, getStatusIcon, getGitHubInfo } from './utils';
 import { ConfigViewProvider } from './configView';
 import { RunsViewProvider, RunsTreeItem } from './runsView';
+import { initLogger, logInfo, logError } from './logger';
 
 // Global state
 let statusBarItem: vscode.StatusBarItem;
@@ -48,7 +49,8 @@ function normalizeHeadWorkflow(state: IMonitoringState): void {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-	console.log('Workflow Heartbeat is now active!');
+	initLogger(context);
+	logInfo('activated');
 
 	// Restore previous monitoring state if any, with migration for legacy format
 	const savedState = context.workspaceState.get<IMonitoringState | ILegacyMonitoringState>('monitoringState');
@@ -72,7 +74,7 @@ export function activate(context: vscode.ExtensionContext) {
 			};
 			// Save migrated state
 			context.workspaceState.update('monitoringState', currentState);
-			console.log('Migrated legacy monitoring state to new format');
+			logInfo('migrated legacy monitoring state');
 		} else {
 			currentState = savedState as IMonitoringState;
 		}
@@ -140,7 +142,7 @@ export function activate(context: vscode.ExtensionContext) {
 				}))
 			}));
 		} catch (error) {
-			console.error('Failed to fetch jobs:', error);
+			logError('failed to fetch jobs', error);
 			return [];
 		}
 	});
@@ -392,7 +394,7 @@ export function activate(context: vscode.ExtensionContext) {
 			vscode.window.showInformationMessage(`Configuration exported to ${uri.fsPath}`);
 
 		} catch (error) {
-			console.error('Error exporting configuration:', error);
+			logError('export configuration failed', error);
 			vscode.window.showErrorMessage(`Failed to export configuration: ${error}`);
 		}
 	});
@@ -472,7 +474,7 @@ export function activate(context: vscode.ExtensionContext) {
 			);
 
 		} catch (error) {
-			console.error('Error importing configuration:', error);
+			logError('import configuration failed', error);
 			if (error instanceof SyntaxError) {
 				vscode.window.showErrorMessage('Failed to import configuration: invalid JSON file.');
 			} else {
@@ -521,27 +523,34 @@ export function activate(context: vscode.ExtensionContext) {
 		try {
 			const isGroupRerun = item?.itemType === 'jobGroupFailed' && item?.groupName;
 			if (isGroupRerun) {
-				// Rerun only the failed jobs within this group
 				const failedJobs = runsViewProvider.getFailedJobsForGroup(runId, item!.groupName!);
 				if (failedJobs.length === 0) {
 					vscode.window.showErrorMessage('No failed jobs found for this group.');
 					return;
 				}
-				await Promise.all(failedJobs.map(job =>
-					octokit!.rest.actions.reRunJobForWorkflowRun({
-						owner: currentState!.owner,
-						repo: currentState!.repo,
-						job_id: job.id
-					})
-				));
-			} else {
-				// Rerun all failed jobs in the entire workflow run
-				await octokit.rest.actions.reRunWorkflowFailedJobs({
-					owner: currentState.owner,
-					repo: currentState.repo,
-					run_id: runId
-				});
 			}
+			await vscode.window.withProgress(
+				{ location: vscode.ProgressLocation.Notification, title: 'Workflow Heartbeat', cancellable: false },
+				async (progress) => {
+					progress.report({ message: 'Re-running failed jobs…' });
+					if (isGroupRerun) {
+						const failedJobs = runsViewProvider.getFailedJobsForGroup(runId, item!.groupName!);
+						await Promise.all(failedJobs.map(job =>
+							octokit!.rest.actions.reRunJobForWorkflowRun({
+								owner: currentState!.owner,
+								repo: currentState!.repo,
+								job_id: job.id
+							})
+						));
+					} else {
+						await octokit!.rest.actions.reRunWorkflowFailedJobs({
+							owner: currentState!.owner,
+							repo: currentState!.repo,
+							run_id: runId
+						});
+					}
+				}
+			);
 			vscode.window.showInformationMessage('Rerun of failed jobs started successfully.');
 			await refreshStatus(context);
 		} catch (error: any) {
@@ -783,10 +792,16 @@ async function selectWorkflow(context: vscode.ExtensionContext): Promise<void> {
 		octokit = await getOctokit(session.accessToken);
 
 		// Fetch workflows from GitHub
-		const { data: workflowsData } = await octokit.rest.actions.listRepoWorkflows({
-			owner: githubInfo.owner,
-			repo: githubInfo.repo
-		});
+		const { data: workflowsData } = await vscode.window.withProgress(
+			{ location: vscode.ProgressLocation.Notification, title: 'Workflow Heartbeat', cancellable: false },
+			async (progress) => {
+				progress.report({ message: 'Loading workflows…' });
+				return octokit!.rest.actions.listRepoWorkflows({
+					owner: githubInfo.owner,
+					repo: githubInfo.repo
+				});
+			}
+		);
 
 		if (workflowsData.workflows.length === 0) {
 			vscode.window.showErrorMessage('No workflows found in this repository.');
@@ -835,7 +850,7 @@ async function selectWorkflow(context: vscode.ExtensionContext): Promise<void> {
 		);
 
 	} catch (error) {
-		console.error('Error selecting workflow:', error);
+		logError('selectWorkflow failed', error);
 		vscode.window.showErrorMessage(`Failed to set up monitoring: ${error}`);
 	}
 }
@@ -921,7 +936,7 @@ async function selectBranch(context: vscode.ExtensionContext): Promise<void> {
 		}
 
 	} catch (error) {
-		console.error('Error selecting branch:', error);
+		logError('selectBranch failed', error);
 		vscode.window.showErrorMessage(`Failed to select branch: ${error}`);
 	}
 }
@@ -960,10 +975,16 @@ async function selectWorkflowOnly(context: vscode.ExtensionContext): Promise<voi
 		octokit = await getOctokit(session.accessToken);
 
 		// Fetch workflows from GitHub
-		const { data: workflowsData } = await octokit.rest.actions.listRepoWorkflows({
-			owner: cachedGitHubInfo.owner,
-			repo: cachedGitHubInfo.repo
-		});
+		const { data: workflowsData } = await vscode.window.withProgress(
+			{ location: vscode.ProgressLocation.Notification, title: 'Workflow Heartbeat', cancellable: false },
+			async (progress) => {
+				progress.report({ message: 'Loading workflows…' });
+				return octokit!.rest.actions.listRepoWorkflows({
+					owner: cachedGitHubInfo!.owner,
+					repo: cachedGitHubInfo!.repo
+				});
+			}
+		);
 
 		if (workflowsData.workflows.length === 0) {
 			vscode.window.showErrorMessage('No workflows found in this repository.');
@@ -1017,7 +1038,7 @@ async function selectWorkflowOnly(context: vscode.ExtensionContext): Promise<voi
 		}
 
 	} catch (error) {
-		console.error('Error selecting workflow:', error);
+		logError('selectWorkflowOnly failed', error);
 		vscode.window.showErrorMessage(`Failed to select workflow: ${error}`);
 	}
 }
@@ -1103,7 +1124,7 @@ async function checkRunForFailedSteps(state: IMonitoringState, runId: number): P
 			}
 		}
 	} catch (error) {
-		console.error('Error checking for failed steps:', error);
+		logError('checkRunForFailedSteps failed', error);
 	}
 
 	return false;
@@ -1264,7 +1285,7 @@ async function checkWorkflowStatus(context: vscode.ExtensionContext, state: IMon
 		configViewProvider.refresh();
 
 	} catch (error) {
-		console.error('Error checking workflow status:', error);
+		logError('checkWorkflowStatus failed', error);
 	}
 }
 
@@ -1361,7 +1382,7 @@ async function selectNotifyUsers(context: vscode.ExtensionContext): Promise<void
 		vscode.window.showInformationMessage(message);
 
 	} catch (error) {
-		console.error('Error selecting notify users:', error);
+		logError('selectNotifyUsers failed', error);
 		vscode.window.showErrorMessage(`Failed to select users: ${error}`);
 	}
 }
@@ -1450,7 +1471,7 @@ async function selectFilterUsers(context: vscode.ExtensionContext): Promise<void
 		vscode.window.showInformationMessage(message);
 
 	} catch (error) {
-		console.error('Error selecting filter users:', error);
+		logError('selectFilterUsers failed', error);
 		vscode.window.showErrorMessage(`Failed to select users: ${error}`);
 	}
 }
