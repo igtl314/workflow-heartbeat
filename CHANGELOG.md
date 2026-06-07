@@ -6,7 +6,11 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
-- No unreleased changes yet.
+### Added
+- Dedicated "Workflow Heartbeat" Output channel for diagnostic logs; previously errors were only visible via DevTools
+
+### Changed
+- Show progress notifications while loading workflows and re-running failed jobs
 
 ## [1.4.0] - 2026-03-23
 

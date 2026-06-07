@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { IMonitoringState, IWorkflowRun, IWorkflowJob } from './types';
+import { logError } from './logger';
 
 function splitJobNamePath(jobName: string): string[] {
 	return jobName
@@ -274,7 +275,7 @@ export class RunsViewProvider implements vscode.TreeDataProvider<RunsTreeItem> {
 					run.jobs = jobs;
 				}
 			} catch (error) {
-				console.error('Error fetching jobs:', error);
+				logError('fetchJobs (runsView) failed', error);
 				return [new RunsTreeItem(
 					'Error loading jobs',
 					'',
