@@ -6,7 +6,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
-- No unreleased changes yet.
+### Fixed
+- Remove duplicate "Cancel" button from modal confirmation dialogs (import config and rerun failed jobs)
 
 ## [1.4.0] - 2026-03-23
 
