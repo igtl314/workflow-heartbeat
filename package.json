@@ -261,7 +261,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "~22.19.15",
     "@types/vscode": "^1.110.0",
-    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.27.4",
     "eslint": "^9.39.4",
